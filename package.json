@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
-    "build:pages": "vite build --outDir dist/pages --emptyOutDir",
+    "build:pages": "vite build --outDir dist/pages --emptyOutDir && node scripts/patch-pages-html.mjs",
     "typecheck": "tsc -p tsconfig.app.json",
     "typecheck:relay": "tsc -p tsconfig.relay.json",
     "lint": "concurrently npm:typecheck npm:lint:eslint",
