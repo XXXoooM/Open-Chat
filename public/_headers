@@ -1,0 +1,26 @@
+# 响应头（Cloudflare Pages / Netlify 会读取本文件；其它托管忽略）
+#
+# 本文件会被构建脚本原样复制进产物根目录，因此这里只默认开启
+# 「不会导致应用异常」的头；凡是有白屏或嵌入风险的头都放在下面注释块里。
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
+  Permissions-Policy: geolocation=(), camera=(), microphone=(), payment=()
+
+# ── 内容安全策略（默认注释：启用前必须实测）─────────────────────
+# 不默认启用的原因：
+# 1. connect-src 必须放行你的 Broker 与中继来源，而这两个地址来自构建期环境变量
+#    （VITE_MQTT_URL / VITE_RELAY_URL），静态文件无法预知；
+# 2. 样式需要 'unsafe-inline'（Tailwind + framer-motion 会写内联样式），
+#    字体来自 Google Fonts，但构建脚本会把其重写为平台字体镜像域名；
+# 3. 一旦漏配，表现是整页白屏（脚本被拦），排查成本高。
+# 启用步骤：把下面 4 个占位域名替换为真实值，在浏览器控制台确认无 CSP 违规，
+# 再取消注释。建议先在预览环境验证。
+#
+# /*
+#   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' <字体样式来源>; font-src 'self' data: <字体文件来源>; img-src 'self' data: blob:; connect-src 'self' wss://<broker 域名> wss://<中继域名>; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+#
+# ── 禁止被第三方站点嵌套（平台预览可能依赖同源嵌套，故默认注释）──
+#   X-Frame-Options: SAMEORIGIN
+# */

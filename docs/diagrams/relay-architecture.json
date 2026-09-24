@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "加密聊天室中继架构（Cloudflare Durable Objects）",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/relay-architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-path",
+        "label": "主通路",
+        "focus": ["hook", "transport", "relay", "worker", "roomdo", "storage"],
+        "note": "从业务逻辑到房间权威状态的投递路径。"
+      },
+      {
+        "id": "fallback-path",
+        "label": "MQTT 回落通路",
+        "focus": ["transport", "mqtt", "broker"],
+        "note": "清空 VITE_RELAY_URL 即回到原有 MQTT 通路，用于回滚。"
+      },
+      {
+        "id": "privacy-boundary",
+        "label": "隐私边界",
+        "focus": ["hook", "crypto", "transport", "relay", "roomdo"],
+        "note": "明文只存在于客户端，离开客户端的一律是密文信封。"
+      }
+    ]
+  },
+  "layout": { "mode": "grid", "cols": 5, "cellW": 152, "cellH": 78, "gapX": 56, "gapY": 74 },
+  "components": [
+    { "id": "crypto", "type": "security", "label": "crypto.ts", "sublabel": "PBKDF2 + AES-GCM", "tag": "明文仅在此边界内", "row": 0, "col": 0 },
+    { "id": "hook", "type": "frontend", "label": "useMqttChat", "sublabel": "房间与消息逻辑", "row": 1, "col": 0 },
+    { "id": "browser", "type": "external", "label": "浏览器客户端", "sublabel": "两个标签页即两个成员", "row": 2, "col": 0 },
+    { "id": "transport", "type": "frontend", "label": "ITransport 适配层", "sublabel": "只认频道语义", "row": 1, "col": 1 },
+    { "id": "relay", "type": "frontend", "label": "relayTransport", "sublabel": "WebSocket 客户端", "row": 0, "col": 2 },
+    { "id": "mqtt", "type": "frontend", "label": "mqttTransport", "sublabel": "mqtt.js 实现", "row": 2, "col": 2 },
+    { "id": "worker", "type": "cloud", "label": "Worker 入口", "sublabel": "relay/index.ts", "tag": "按命名空间路由", "row": 0, "col": 3 },
+    { "id": "broker", "type": "messagebus", "label": "MQTT Broker", "sublabel": "外部 EMQX", "row": 2, "col": 3 },
+    { "id": "roomdo", "type": "cloud", "label": "RoomDO", "sublabel": "扇出与状态裁决", "tag": "不解密", "row": 0, "col": 4 },
+    { "id": "storage", "type": "database", "label": "DO Storage", "sublabel": "焚毁标记与房间状态", "row": 1, "col": 4 }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Cloudflare 边缘", "wraps": ["worker", "roomdo", "storage"] },
+    { "kind": "security-group", "label": "端到端加密边界", "wraps": ["hook", "crypto"] }
+  ],
+  "connections": [
+    { "id": "open-chat", "from": "browser", "to": "hook", "label": "进入 /chat" },
+    { "id": "encrypt-decrypt", "from": "hook", "to": "crypto", "label": "加解密调用", "variant": "security", "fromSide": "top", "toSide": "bottom" },
+    { "id": "publish-channel", "from": "hook", "to": "transport", "label": "publish(频道, 密文)", "labelDy": 54 },
+    { "id": "use-relay", "from": "transport", "to": "relay", "label": "VITE_RELAY_URL 已配置" },
+    { "id": "use-mqtt", "from": "transport", "to": "mqtt", "label": "未配置则回落" },
+    { "id": "ws-upgrade", "from": "relay", "to": "worker", "label": "wss /room/{roomId}/{namespace}", "variant": "emphasis", "labelDy": 54 },
+    { "id": "route-to-do", "from": "worker", "to": "roomdo", "label": "idFromName(密码派生命名空间)", "variant": "security", "labelDy": 54 },
+    { "id": "persist-marks", "from": "roomdo", "to": "storage", "label": "焚毁标记与房间寿命", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "mqtt-over-wss", "from": "mqtt", "to": "broker", "label": "MQTT over WSS", "variant": "dashed", "labelDy": 54 }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "隐私边界",
+      "items": [
+        "密文只在客户端产生与解读，中继不持有密码",
+        "中继可见的明文仅三项：消息 id、焚毁策略、房间销毁时间",
+        "房间地址不写入日志，需要时只记哈希前缀"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "准入模型",
+      "items": [
+        "Durable Object 名由密码派生命名空间决定，只有知道密码才能算出地址",
+        "服务端无法验证密码派生签名，也刻意不接触密钥材料",
+        "因此不引入全局共享准入密钥这类弱化手段"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "成本与清扫",
+      "items": [
+        "WebSocket Hibernation：空闲房间不驻留内存",
+        "定时统一走 Alarm，开销为 O(房间数) 而非 O(连接数)",
+        "焚毁标记有界保留，房间到期即整体清除"
+      ]
+    }
+  ]
+}

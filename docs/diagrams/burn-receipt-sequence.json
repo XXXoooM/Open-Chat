@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "读后焚毁与已读回执时序（服务端权威）",
+    "locale": "zh-CN",
+    "output": "docs/diagrams/burn-receipt-sequence.html",
+    "quality_profile": "showcase",
+    "column_fit": "spread",
+    "viewBox": [1000, 576],
+    "views": [
+      {
+        "id": "publish-and-fanout",
+        "label": "发送与扇出",
+        "focus": ["sender", "relay", "alice"],
+        "note": "中继登记待焚毁与应读人数后扇出密文，并回显给发送方。"
+      },
+      {
+        "id": "read-and-burn",
+        "label": "已读与焚毁",
+        "focus": ["alice", "relay", "sender"],
+        "note": "回执只广播计数；全员已读即广播焚毁。"
+      },
+      {
+        "id": "late-joiner",
+        "label": "后来者不可见",
+        "focus": ["bob", "relay"],
+        "note": "中继不留存密文，因此不存在可回放的已焚毁消息。"
+      }
+    ]
+  },
+  "participants": [
+    { "id": "sender", "type": "frontend", "label": "发送方客户端", "sublabel": "burn = read" },
+    { "id": "relay", "type": "cloud", "label": "RoomDO 中继", "sublabel": "不解密，只仲裁" },
+    { "id": "alice", "type": "external", "label": "在线接收方", "sublabel": "发送时在线" },
+    { "id": "bob", "type": "external", "label": "后来加入者", "sublabel": "焚毁后才进入" }
+  ],
+  "segments": [
+    { "from": 152, "to": 306, "label": "发送与扇出" },
+    { "from": 314, "to": 424, "label": "已读与焚毁" },
+    { "from": 432, "to": 512, "label": "后来者不可见" }
+  ],
+  "messages": [
+    { "id": "pub-burn", "from": "sender", "to": "relay", "y": 168, "label": "pub：密文 + id + burn=read", "variant": "emphasis" },
+    { "id": "fanout", "from": "relay", "to": "alice", "y": 208, "label": "msg：密文 + burn=read", "variant": "emphasis" },
+    { "id": "echo", "from": "relay", "to": "sender", "y": 248, "label": "msg：回显，推进为已发送", "variant": "return" },
+    { "id": "read-ack", "from": "alice", "to": "relay", "y": 288, "label": "read：id", "variant": "default" },
+    { "id": "receipt", "from": "relay", "to": "sender", "y": 328, "label": "receipt：已读 1/1（只给计数）", "variant": "return" },
+    { "id": "burn-alice", "from": "relay", "to": "alice", "y": 368, "label": "burn：该消息已焚毁", "variant": "security" },
+    { "id": "burn-sender", "from": "relay", "to": "sender", "y": 408, "label": "burn：该消息已焚毁", "variant": "security" },
+    { "id": "late-hello", "from": "bob", "to": "relay", "y": 448, "label": "hello：订阅频道", "variant": "default" },
+    { "id": "no-replay", "from": "relay", "to": "bob", "y": 488, "label": "无回放：中继不留存密文", "variant": "dashed" }
+  ],
+  "activations": [
+    { "participant": "sender", "from": 162, "to": 420, "type": "frontend" },
+    { "participant": "relay", "from": 168, "to": 496, "type": "cloud" },
+    { "participant": "alice", "from": 202, "to": 420, "type": "external" },
+    { "participant": "bob", "from": 442, "to": 496, "type": "external" }
+  ],
+  "cards": [
+    {
+      "dot": "rose",
+      "title": "中继能真正保证的",
+      "items": [
+        "已焚毁的消息不再向任何人投递，后来者拿不到副本",
+        "中继不保留密文：投递后待投队列即清空",
+        "发送方获得服务端计数的已读确认",
+        "已读只广播计数，不广播身份"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "无法保证（界面须如实标注）",
+      "items": [
+        "无法阻止截屏或拍屏",
+        "无法强制被修改过的客户端删除本地明文",
+        "因此文案不得写「无人可见」这类承诺"
+      ]
+    }
+  ]
+}
