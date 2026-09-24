@@ -167,6 +167,26 @@ npm run relay:deploy   # 需要自己的 Cloudflare 账号（wrangler login）
 ```
 可选：在 `wrangler.jsonc` 配置 `ALLOWED_ORIGINS`（逗号分隔）限制可连接来源。
 
+#### 线上环境（当前）
+
+| 角色 | 地址 |
+|------|------|
+| 前端（Pages） | https://open-chat-abi.pages.dev |
+| 中继（Worker + DO） | `wss://chat-relay.yuia.fun` |
+
+两条与部署环境相关的实践结论，都来自实测：
+
+1. **`*.workers.dev` 在部分地区会被 DNS 污染**（解析到伪造 IP，连接超时），因此中继必须挂自定义域名：
+   `wrangler.jsonc` 的 `routes` 指定域名后 `npm run relay:deploy`，Cloudflare 会自动创建 DNS 记录与证书。
+   同时显式设 `workers_dev: false`，对外只保留一个入口。
+2. **前端公开部署不应携带任何 Broker 凭据**。构建 `build:pages` 时把 `VITE_RELAY_URL` 指向中继域名，
+   并把 `VITE_MQTT_*` 置为占位值（或直接不设），产物中只会出现占位值与被公开的中继地址。
+   可用如下方式自查（应输出 0）：
+
+   ```bash
+   grep -c "你的 broker 主机名" dist/pages/assets/*.js
+   ```
+
 ### 已知未闭合风险（务必知悉）
 
 1. **MQTT 凭据进入前端产物**：`.env.local` 的 `VITE_*` 变量会被打进 JS，

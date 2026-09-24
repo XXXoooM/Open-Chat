@@ -2,6 +2,11 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "open-chat-relay",
   "main": "relay/index.ts",
+  // 自定义域名：workers.dev 在部分地区被 DNS 污染（解析到伪造 IP），必须走自有域名。
+  // 变更域名后需重新部署，并同步更新前端构建期的 VITE_RELAY_URL。
+  "routes": [{ "pattern": "chat-relay.yuia.fun", "custom_domain": true }],
+  // 显式关闭 workers.dev 端点：对外只保留自定义域名一个入口（该域名在部分地区不可达，且多余的入口没有价值）
+  "workers_dev": false,
   "compatibility_date": "2025-09-01",
   "dev": {
     "port": 8787
