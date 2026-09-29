@@ -3,7 +3,11 @@
 # 必要性：应用使用 BrowserRouter，深链接（如 /chat）直接访问或刷新时，
 # 静态托管会去找同名文件并返回 404。
 #
-# 本站部署在域名根路径，因此使用下面这条通配规则。
-# 若改为部署到子路径，需把左侧与右侧同时改成对应前缀，例如：
-#   /sub/*  /sub/index.html  200
-/*    /index.html   200
+# 本应用可深链的路由只有 / 与 /chat（见 src/app.tsx），因此逐条显式列出。
+#
+# ⚠️ 严禁改为 /* 通配：Cloudflare Pages 会判定 `/*  /index.html  200` 为无限循环
+# 并**整条忽略**（构建日志会出现 "Infinite loop detected ... has been ignored"
+# 与 "Parsed 0 valid redirect rules"），导致 SPA 回退失效、深链接 404。
+# 根路径 / 由 index.html 直接命中，无需规则。
+# 将来若新增可深链路由，在此按同样格式追加一条。
+/chat    /index.html   200

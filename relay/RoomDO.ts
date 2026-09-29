@@ -420,16 +420,42 @@ export class RoomDO {
     await this.scheduleAlarm(await this.load());
   }
 
-  /** 只允许把 Alarm 提前，不允许推迟，避免高频取消/重设造成额外唤醒 */
+  /**
+   * 排下一次 Alarm。
+   *
+   * 调度规则（只允许把 Alarm 提前，不允许推迟，避免高频取消/重设造成额外唤醒）：
+   * - **清扫候选仅在存在活跃连接时排入**。没有连接就没有半开连接可清，
+   *   周期性唤醒纯属空转 —— 此前无条件排入 `now + 60s`，使每个房间（包括
+   *   早已无人、甚至已被放弃的房间）每天都固定唤醒 1440 次，
+   *   且该开销与在线人数无关，是「只有 2 人在线却持续产生请求」的主因。
+   * - 房间到期销毁、定时焚毁、读后焚毁兜底三个候选照旧排入，
+   *   因此销毁与焚毁语义完全不变。
+   * - 若房间已过期但尚未销毁（异常时序），立即唤醒一次去执行销毁，避免存储残留。
+   */
   private async scheduleAlarm(store: IRoomStorage): Promise<void> {
     const now = Date.now();
-    const candidates: number[] = [now + RELAY_SWEEP_INTERVAL_MS];
+
+    if (store.room && store.room.destroyAt <= now) {
+      await this.state.storage.setAlarm(now);
+      return;
+    }
+
+    const candidates: number[] = [];
+    // 仅在有连接时才需要周期性清扫
+    if (this.state.getWebSockets().length > 0) {
+      candidates.push(now + RELAY_SWEEP_INTERVAL_MS);
+    }
     if (store.room) candidates.push(store.room.destroyAt);
     for (const at of Object.values(store.pending)) candidates.push(at);
     for (const publishedAt of Object.values(store.awaitingRead)) {
       candidates.push(publishedAt + READ_BURN_FALLBACK_MS);
     }
-    const next = Math.min(...candidates.filter((at) => at > now));
+
+    const alive = candidates.filter((at) => at > now);
+    // 无事可做：不设 Alarm，让 Durable Object 静默休眠（下次 fetch 会重新排定）
+    if (alive.length === 0) return;
+
+    const next = Math.min(...alive);
     const current = await this.state.storage.getAlarm();
     if (current === null || next < current) {
       await this.state.storage.setAlarm(next);

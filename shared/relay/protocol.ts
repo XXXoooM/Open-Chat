@@ -137,8 +137,18 @@ export const RELAY_MAX_FRAME_BYTES = 1024 * 1024;
 export const RELAY_MAX_BURN_MARKS = 2000;
 /** 统一清扫间隔（失活连接、到期焚毁） */
 export const RELAY_SWEEP_INTERVAL_MS = 60000;
-/** 连接失活阈值：超过即视为半开连接并主动关闭 */
-export const RELAY_SOCKET_TIMEOUT_MS = 45000;
+/**
+ * 连接失活阈值：超过即视为半开连接并主动关闭。
+ *
+ * **必须覆盖浏览器对隐藏标签页的定时器节流**：Chrome 对隐藏标签页的定时器最慢
+ * 可降到约 1 次/分钟，此时客户端 20 秒的保活 ping 实际会变成约 60 秒一次。
+ * 阈值若取 45 秒，健康的后台连接会被周期性误杀 —— 客户端随即重连，形成
+ * 「每分钟重连一次」的循环，每次都要付一次 Worker fetch + DO 唤醒 + 附件写 + Alarm 重排。
+ *
+ * 取 120 秒 = 节流后保活间隔的 2 倍，并与客户端本地兜底超时保持一致
+ * （客户端该兜底直接引用本常量，避免两处数值漂移）。
+ */
+export const RELAY_SOCKET_TIMEOUT_MS = 120000;
 /** 房间寿命上限，防止异常的 destroyAt 把房间锁死 */
 export const RELAY_MAX_ROOM_MS = 24 * 60 * 60 * 1000;
 

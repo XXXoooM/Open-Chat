@@ -36,6 +36,7 @@ import {
 } from '@/lib/chatEvents';
 import { BURN_FADE_MS } from '@/lib/burnPolicy';
 import { useTypingIndicator } from '@/hooks/useTypingIndicator';
+import { RELAY_SOCKET_TIMEOUT_MS } from '@shared/relay/protocol';
 import type { IBurnPolicy } from '@shared/relay/protocol';
 
 export type MessageType = 'text' | 'image' | 'file' | 'system' | 'event';
@@ -141,7 +142,7 @@ const PRESENCE_TIMEOUT = 30000;
  * 且不产生任何扇出。这里的长超时仅作为 `peer-left` 丢失时的兜底，
  * 避免成员记录永久滞留。
  */
-const RELAY_PRESENCE_TIMEOUT = 120000;
+const RELAY_PRESENCE_TIMEOUT = RELAY_SOCKET_TIMEOUT_MS + 30000;
 const META_WAIT_MS = 2000;
 /** 建房间前的随机抖动，避免多客户端同时判定「我是创建者」（FUNC-03） */
 const META_WAIT_JITTER_MS = 2000;
