@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "node scripts/build.mjs",
-    "build:pages": "vite build --outDir dist/pages --emptyOutDir && node scripts/patch-pages-html.mjs",
+    "build": "vite build --outDir dist/pages --emptyOutDir",
+    "build:pages": "npm run build",
     "typecheck": "tsc -p tsconfig.app.json",
     "typecheck:relay": "tsc -p tsconfig.relay.json",
     "lint": "concurrently npm:typecheck npm:lint:eslint",
@@ -18,7 +18,6 @@
     "relay:deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@lark-apaas/client-toolkit-lite": "^1.1.30",
     "@radix-ui/react-accordion": "^1.2.11",
     "@radix-ui/react-alert-dialog": "^1.1.14",
     "@radix-ui/react-aspect-ratio": "^1.1.7",
@@ -70,14 +69,18 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260921.1",
-    "@lark-apaas/coding-preset-vite-react": "^1.0.25",
-    "@lark-apaas/coding-presets-react": "^0.1.0",
+    "@eslint/js": "^9.35.0",
+    "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.0.0",
     "concurrently": "^9",
     "eslint": "^9",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.4.0",
     "typescript": "~5.9",
+    "typescript-eslint": "^8.44.0",
     "vite": "^8",
     "wrangler": "^4.0.0"
   }
