@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { EmojiText } from '@/components/emoji/EmojiText';
+import { playSound } from '@/lib/sound/map';
 import { Button } from '@/components/ui/button';
 import {
   ArrowDown,
@@ -244,13 +246,15 @@ const MessageListSection = memo(function MessageListSection({
                 {/* 文字消息（已焚毁时改用销毁标记，避免内容在淡出期间仍可被读取） */}
                 {msg.msgType === 'text' && !burned && (
                   <div
+                    onPointerEnter={() => playSound('ui:hover')}
                     className={`max-w-[75%] md:max-w-[60%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed break-words ${
                       msg.isMine
                         ? 'bg-primary text-primary-foreground rounded-br-md'
                         : 'bg-muted text-foreground rounded-bl-md'
                     } ${bubbleStateClass}`}
                   >
-                    {msg.content}
+                    {/* 表情按图片渲染（开关关闭时为零外部请求的纯文本），消息内容本身不变 */}
+                    <EmojiText text={msg.content} />
                   </div>
                 )}
                 {burned && (

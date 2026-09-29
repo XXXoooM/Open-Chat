@@ -1,9 +1,11 @@
 // EXPORTS: default
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Moon, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { StatusBadge } from '@/components/spaceui/status-badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { playSound } from '@/lib/sound/map';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { formatClockTime } from '@/lib/chatEvents';
 import type { IOnlineUser } from '@/hooks/useMqttChat';
@@ -62,10 +64,17 @@ export default function OnlineUsersSection({ users, currentUserId }: OnlineUsers
   if (sorted.length === 0) return null;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        playSound(next ? 'ui:open' : 'ui:close');
+        setOpen(next);
+      }}
+    >
       <PopoverTrigger asChild>
         <button
           type="button"
+          onPointerEnter={() => playSound('ui:hover')}
           className="group flex shrink-0 items-center rounded-full p-1 transition-colors hover:bg-muted/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           aria-label={`在线成员 ${sorted.length} 人，其中 ${divingCount} 人潜水中，点击查看完整名单`}
         >
@@ -119,7 +128,15 @@ export default function OnlineUsersSection({ users, currentUserId }: OnlineUsers
         <div className="flex items-center gap-1.5 px-2 pb-1.5 pt-0.5 text-xs font-medium text-muted-foreground">
           <Users className="size-3.5" />
           在线成员 · {sorted.length}
-          {divingCount > 0 && <span className="text-warning-surface-foreground">（{divingCount} 人潜水中）</span>}
+          {divingCount > 0 && (
+            <StatusBadge
+              status="away"
+              size="xs"
+              animated={false}
+              showIndicator={false}
+              primaryText={`${divingCount} 人潜水中`}
+            />
+          )}
         </div>
         <ul className="max-h-64 space-y-0.5 overflow-y-auto">
           {sorted.map((user) => {
@@ -154,11 +171,15 @@ export default function OnlineUsersSection({ users, currentUserId }: OnlineUsers
                   </div>
                   {/* 潜水状态 + 进入潜水的时间 */}
                   {isDiving && (
-                    <p className="flex items-center gap-1 text-[10px] text-warning-surface-foreground">
-                      <Moon className="size-3 shrink-0" />
-                      潜水中
-                      {typeof user.divedAt === 'number' && ` · 自 ${formatClockTime(user.divedAt)} 起`}
-                    </p>
+                    <StatusBadge
+                      status="away"
+                      size="xs"
+                      animated={false}
+                      className="mt-1"
+                      primaryText={`潜水中${
+                        typeof user.divedAt === 'number' ? ` · 自 ${formatClockTime(user.divedAt)} 起` : ''
+                      }`}
+                    />
                   )}
                 </div>
               </li>

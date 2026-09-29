@@ -12,6 +12,12 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { SettingsMenu } from '@/components/settings/SettingsMenu';
+import { ThemeToggleButton } from '@/components/spaceui/theme-toggle';
+// 直接引用具体模块，避免经 barrel（@/components/orb/thinking）引入其余 9 种形态的依赖
+import { OrbConnecting } from '@/components/orb/thinking/orb-connecting';
+import LoadingOrb from '@/components/orb/loading';
+import { useReducedMotion } from 'framer-motion';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -39,6 +45,7 @@ import {
   type IPrivacySettings,
 } from '@/lib/privacySettings';
 import { BURN_UNAVAILABLE_HINT, toBurnPolicy, type BurnModeOption } from '@/lib/burnPolicy';
+import { playSound } from '@/lib/sound/map';
 import type { IBurnPolicy } from '@shared/relay/protocol';
 
 /** 传输层可用性：中继优先，其次 MQTT（判定逻辑集中在 transport 模块） */
@@ -86,6 +93,9 @@ export default function ChatPage() {
   // 修复 AUDIT.md FUNC-06：密码此前只来自路由 state，刷新页面即被强制踢回首页。
   // 现在回退到 sessionStorage（仅当前标签页有效，关闭即失效）。
   const roomId = state?.roomId || readStoredRoomId();
+  /** 系统「减少动效」偏好：canvas 球体等重动效据此降级为纯文案（见状态行） */
+  const reduceMotion = useReducedMotion();
+
   const nickname = state?.nickname || readStoredNickname();
   const password = state?.password || readSessionPassword();
 
@@ -298,18 +308,39 @@ export default function ChatPage() {
             variant="ghost"
             size="icon"
             className="h-9 w-9 shrink-0 rounded-full"
-            onClick={handleLeave}
+            onClick={() => {
+              playSound('nav:back');
+              handleLeave();
+            }}
             aria-label="返回"
           >
             <ArrowLeft className="size-4" />
           </Button>
 
           <div className="flex-1 min-w-0">
+            {/*
+              房间号：**刻意不使用任何循环/重播动效**。
+              此前用 BlurRevealText 时，父组件（剩余时间倒计时每秒重渲染）会让揭示动画反复
+              重播 —— 实测 4 秒内产生 229 次样式变更、第二个观察窗口仍持续 163 次，这正是
+              「左上角房间号持续闪烁」的成因。现改为纯文本，任何状态下都稳定显示。
+            */}
             <h1 className="text-sm font-semibold text-foreground truncate flex items-center gap-1.5">
               <Hash className="size-3.5 text-primary shrink-0" />
-              {roomId}
+              <span className="truncate">{roomId}</span>
             </h1>
-            <p className="text-xs text-muted-foreground truncate">{statusText}</p>
+            {/*
+              状态行：文案改为纯文本（此前同样使用会反复重播的揭示动效，一并去除）。
+              等待态仍叠加 SpaceUI 球体；系统「减少动效」时不渲染球体。
+            */}
+            <div className="flex items-center gap-1.5 min-w-0">
+              {!reduceMotion && status === 'connecting' ? (
+                <OrbConnecting size={16} speed={1.4} className="shrink-0" />
+              ) : null}
+              {!reduceMotion && status === 'disconnected' ? (
+                <LoadingOrb size={13} speed={420} radius={1.5} gap={1.5} className="shrink-0" />
+              ) : null}
+              <p className="text-xs text-muted-foreground truncate">{statusText}</p>
+            </div>
           </div>
 
           {/*
@@ -355,7 +386,7 @@ export default function ChatPage() {
               </span>
             )}
 
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={(open) => playSound(open ? 'ui:open' : 'ui:close')}>
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
@@ -406,6 +437,14 @@ export default function ChatPage() {
                 </p>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/*
+              主题切换（SpaceUI 引入首批）：动效形态用默认的 circle（触发点居中），
+              按钮外观沿用顶栏图标按钮的样式（ghost + icon 尺寸），与左侧隐私设置按钮一致。
+              依赖 `AppShell` 中的 ThemeProvider 提供 next-themes 上下文。
+            */}
+            <SettingsMenu />
+          <ThemeToggleButton size="icon" buttonVariant="ghost" title="切换主题" />
 
             <OnlineUsersSection users={onlineUsers} currentUserId={clientId} />
           </div>

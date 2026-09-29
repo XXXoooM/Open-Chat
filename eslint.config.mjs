@@ -122,4 +122,39 @@ export default [
       'no-restricted-syntax': ['error', ...restrictedSyntaxRules],
     },
   },
+  {
+    /**
+     * SpaceUI 目录分区守卫（见 SPACEUI_INTEGRATION.md §1.2）。
+     *
+     * 两套无头原语（既有 Radix / 新增 Base UI）必须分区：SpaceUI 组件不得反向引用
+     * 既有界面原语，否则会因 `asChild`（Radix）与 `render`（Base UI）语义不兼容而运行时报错。
+     *
+     * 注意：`no-restricted-imports` 在上方已全局启用于 `next/link`，且**文件级配置会整体
+     * 覆盖全局配置**，因此这里必须把 `next/link` 的约束一并带上，否则 SpaceUI 目录会成为
+     * 唯一可以导入 next/link 的豁免区。
+     */
+    name: 'open-chat/spaceui-boundary',
+    files: ['src/components/spaceui/**/*.{ts,tsx}', 'src/components/orb/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'next/link',
+              message:
+                "Importing from 'next/link' is prohibited. Use `Link` from 'react-router-dom' instead.",
+            },
+          ],
+          patterns: [
+            {
+              group: ['@/components/ui/*', '@/components/ui'],
+              message:
+                'SpaceUI 组件请使用改道原语 @/components/spaceui/ui/*，不要引用既有界面原语（两套无头库语义不兼容）。',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]

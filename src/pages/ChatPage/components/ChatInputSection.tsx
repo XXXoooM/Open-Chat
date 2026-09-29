@@ -1,5 +1,5 @@
 // EXPORTS: default
-import { useState, useRef, type FormEvent, type KeyboardEvent, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
 import {
   Send,
   Plus,
@@ -9,8 +9,10 @@ import {
   Flame,
   Check,
 } from 'lucide-react';
+import { EmojiTrigger } from '@/components/emoji/EmojiTrigger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +21,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { useChatPaste } from '@/hooks/useChatPaste';
+import { pushRecentEmoji } from '@/hooks/useUiPreferences';
 import { formatFileSize } from '@/lib/media';
+import { playSound } from '@/lib/sound/map';
 import { MAX_FILE_PRECHECK, MAX_UPLOAD_PRECHECK } from '@/lib/chatLimits';
 import {
   BURN_MODE_OPTIONS,
@@ -67,12 +72,36 @@ export default function ChatInputSection({
   const canSend = trimmed.length > 0 && !disabled && !sending;
   const burnActive = burnMode !== 'off';
 
-  /** 输入区常驻可见的当前策略文案 */
+  /** 输入区常驻可见的当前策略文案（关闭时用「阅后即焚」，与菜单标题口径一致） */
   const burnLabel = !burnActive
-    ? '焚毁'
+    ? '阅后即焚'
     : burnMode === 'read'
       ? '读后焚毁'
       : `${formatBurnTtl(burnTtlMs)}焚毁`;
+
+  /**
+   * 记住最后一次启用的焚毁模式。
+   *
+   * Switch 是二元的（开/关），而焚毁策略有三态（关闭/读后/定时）。关闭时若不记下
+   * 上次选择，重新打开就会丢失用户意图（例如被强制回落为定时焚毁）。初值直接取当前
+   * 存档模式：用户上次存的是 'read'，首次打开开关即恢复「读后焚毁」。
+   */
+  const rememberedBurnModeRef = useRef<BurnModeOption>(burnMode === 'off' ? 'time' : burnMode);
+
+  /** 切换焚毁模式：同步记忆最后一次启用值，供 Switch 再次打开时恢复 */
+  function selectBurnMode(mode: BurnModeOption) {
+    if (mode !== 'off') rememberedBurnModeRef.current = mode;
+    onBurnModeChange(mode);
+  }
+
+  /**
+   * Switch 开关：开 → 恢复上次模式；关 → 'off'。
+   * 音效在这里触发（开关的状态切换是明确的用户动作），模式选择在菜单里触发。
+   */
+  function handleBurnToggle(next: boolean) {
+    playSound(next ? 'ui:toggle-on' : 'ui:toggle-off');
+    selectBurnMode(next ? rememberedBurnModeRef.current : 'off');
+  }
 
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -91,21 +120,50 @@ export default function ChatInputSection({
     }
   }
 
-  async function handleImageChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || disabled || sending) return;
+  /**
+   * 在**光标处**插入文本（而非总是追加到末尾），并把光标移到插入内容之后。
+   *
+   * 输入框是受控组件，插入不依赖焦点：无论光标来自表情面板还是粘贴动作，都能正确
+   * 改写文本。`setSelectionRange` 在未聚焦时同样会记录位置，用户回到输入框时光标即在预期处。
+   */
+  function insertAtCursor(text: string) {
+    if (!text) return;
+    const input = inputRef.current;
+    const start = input?.selectionStart ?? value.length;
+    const end = input?.selectionEnd ?? value.length;
+    setValue(`${value.slice(0, start)}${text}${value.slice(end)}`);
+    onTyping?.();
 
+    const caret = start + text.length;
+    requestAnimationFrame(() => {
+      inputRef.current?.setSelectionRange(caret, caret);
+    });
+  }
+
+  /** 表情插入：额外记录「最近使用」 */
+  function handleEmojiPick(char: string) {
+    playSound('ui:click');
+    pushRecentEmoji(char);
+    insertAtCursor(char);
+  }
+
+  /**
+   * 图片发送**收口**（选择文件与剪贴板粘贴共用）。
+   *
+   * 刻意把校验与发送放在一处：粘贴与点按钮走完全相同的路径 —— 体积预检、压缩、
+   * 失败提示都一致，不会出现「粘贴的图片没被压缩」这类分叉。
+   * 体积预检来自 AUDIT.md FUNC-15：超大文件此前会先进入「处理中…」再失败。
+   */
+  async function sendImage(file: File) {
+    if (disabled || sending) return;
     if (!file.type.startsWith('image/')) return;
-
-    // 修复 AUDIT.md FUNC-15：图片路径此前完全没有预检，超大文件会先进入
-    // 「处理中…」再失败；这里与文件路径对齐做原始体积预检。
     if (file.size > MAX_UPLOAD_PRECHECK) {
       toast.error(`图片原始体积过大（上限 ${formatFileSize(MAX_UPLOAD_PRECHECK)}）`);
       return;
     }
 
     setSending(true);
+    playSound('chat:loading');
     try {
       await onSendImage(file);
     } finally {
@@ -113,11 +171,9 @@ export default function ChatInputSection({
     }
   }
 
-  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (!file || disabled || sending) return;
-
+  /** 文件发送收口（选择文件与剪贴板粘贴共用） */
+  async function sendFile(file: File) {
+    if (disabled || sending) return;
     if (file.size > MAX_UPLOAD_PRECHECK) {
       toast.error(`文件原始体积过大（上限 ${formatFileSize(MAX_UPLOAD_PRECHECK)}）`);
       return;
@@ -128,12 +184,44 @@ export default function ChatInputSection({
     }
 
     setSending(true);
+    playSound('chat:loading');
     try {
       await onSendFile(file);
     } finally {
       setSending(false);
     }
   }
+
+  async function handleImageChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await sendImage(file);
+  }
+
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    await sendFile(file);
+  }
+
+  /**
+   * 粘贴策略（输入框内粘贴 + 页面任意处粘贴图片）全部在 `useChatPaste` 内。
+   *
+   * 组件只提供三样东西：输入框引用（判断焦点归属）、当前状态、以及上传收口 ——
+   * 两条入口因此共用同一份判定逻辑，不会出现「一处改了另一处忘了改」。
+   * 上传收口传入的是本组件的 `sendImage` / `sendFile`，保证粘贴与「点按钮选文件」
+   * 走完全相同的体积预检、压缩与错误提示。
+   */
+  const { handlePaste } = useChatPaste({
+    inputRef,
+    disabled,
+    sending,
+    onSendImage: sendImage,
+    onSendFile: sendFile,
+    onInsertText: insertAtCursor,
+  });
 
   return (
     <form
@@ -168,7 +256,7 @@ export default function ChatInputSection({
         )}
 
         <div className="flex items-center gap-2">
-          <DropdownMenu>
+          <DropdownMenu onOpenChange={(open) => playSound(open ? 'ui:open' : 'ui:close')}>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
@@ -193,36 +281,53 @@ export default function ChatInputSection({
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* 焚毁模式入口：未启用为中性态，启用后转为珊瑚描边并常驻显示策略 */}
-          <DropdownMenu>
+          {/* 焚毁开关：Switch 直接映射既有 burnMode（开 ↔ 非 off，关 ↔ off），不新增平行状态。
+              窄屏隐藏文案（保持原布局宽度），可访问名称由 aria-labelledby 关联到该文案 */}
+          <Switch
+            checked={burnActive}
+            disabled={disabled}
+            onCheckedChange={handleBurnToggle}
+            aria-labelledby="burn-switch-label"
+            className="shrink-0"
+          />
+          <span
+            id="burn-switch-label"
+            className={`hidden select-none whitespace-nowrap text-xs transition-colors sm:inline ${
+              burnActive ? 'text-primary' : 'text-muted-foreground'
+            }`}
+          >
+            {burnLabel}
+          </span>
+
+          {/* 模式与倒计时入口：原下拉保留为次级入口；「关闭」已由 Switch 承担，此处不再出现 */}
+          <DropdownMenu onOpenChange={(open) => playSound(open ? 'ui:open' : 'ui:close')}>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
-                variant={burnActive ? 'outline' : 'ghost'}
-                size="sm"
-                disabled={disabled}
-                aria-label="阅后即焚设置"
-                className={`h-10 shrink-0 gap-1.5 rounded-full px-3 text-xs transition-colors ${
-                  burnActive
-                    ? 'border-primary/40 bg-primary/5 text-primary hover:bg-primary/10'
-                    : 'text-muted-foreground'
-                }`}
+                variant="ghost"
+                size="icon"
+                disabled={disabled || !burnActive}
+                aria-label="焚毁模式与倒计时"
+                className="h-10 w-10 shrink-0 rounded-full"
               >
-                <Flame className="size-4" />
-                <span className="hidden sm:inline">{burnLabel}</span>
+                <Flame className={`size-4 ${burnActive ? 'text-primary' : ''}`} />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
               <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                 阅后即焚
               </DropdownMenuLabel>
-              {BURN_MODE_OPTIONS.map((option) => {
+              {/* 「关闭」已由 Switch 承担：菜单只保留两种启用态，避免同一状态出现两处入口 */}
+              {BURN_MODE_OPTIONS.filter((option) => option.value !== 'off').map((option) => {
                 const unavailable = option.value === 'read' && !burnEnforced;
                 return (
                   <DropdownMenuItem
                     key={option.value}
                     disabled={unavailable}
-                    onClick={() => onBurnModeChange(option.value)}
+                    onClick={() => {
+                      playSound('ui:click');
+                      selectBurnMode(option.value);
+                    }}
                     className="items-start gap-2"
                   >
                     <div className="flex min-w-0 flex-col">
@@ -247,7 +352,10 @@ export default function ChatInputSection({
                   {BURN_TTL_OPTIONS.map((ttl) => (
                     <DropdownMenuItem
                       key={ttl}
-                      onClick={() => onBurnTtlChange(ttl)}
+                      onClick={() => {
+                        playSound('ui:click');
+                        onBurnTtlChange(ttl);
+                      }}
                       className="gap-2"
                     >
                       <span className="text-sm">{formatBurnTtl(ttl)}后销毁</span>
@@ -270,10 +378,14 @@ export default function ChatInputSection({
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* 表情入口：位于输入框左侧 */}
+          <EmojiTrigger onPick={handleEmojiPick} disabled={disabled} />
+
           <Input
             ref={inputRef}
             type="text"
             value={value}
+            onPaste={handlePaste}
             onChange={(e) => {
               setValue(e.target.value);
               // 清空输入时不产生输入事件（避免上报一个「正在输入」却什么都没打）

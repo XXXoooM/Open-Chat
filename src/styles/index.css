@@ -18,3 +18,4 @@
 @import './vendor/tailwind-theme.css';
 @import './vendor/override.css';
 @import './vendor/font-fallback.css';
+@import './spaceui/tokens.css';

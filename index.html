@@ -9,6 +9,26 @@
       content="基于房间号与密码的端到端加密实时聊天室，支持文字、图片与文件传输、阅后即焚与已读回执。"
     />
     <title>Open Chat · 端到端加密聊天室</title>
+    <!--
+      主题引导脚本：在首帧样式生效前把 .dark 写到 <html>，避免暗色用户刷新时出现亮色闪烁。
+      这是 Next.js 场景由 next-themes 免费获得的能力（SSR 内联脚本），纯 SPA 下必须自己补。
+      与 store 的键、语义完全对齐 `src/components/AppShell.tsx` 的
+      `ThemeProvider storageKey="open-chat-theme" defaultTheme="light"`：
+      取值 'light' | 'dark' | 'system'，未存储时按 light 处理（与 defaultTheme 一致）。
+    -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem('open-chat-theme');
+          var isDark =
+            stored === 'dark' ||
+            (stored === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* 隐私模式下 localStorage 不可用：按亮色处理 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

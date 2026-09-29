@@ -1,5 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
+import {
+  playIncomingMessageSound,
+  playOutgoingMessageSound,
+  playSound,
+} from '@/lib/sound/map';
 import { logger } from '@/lib/logger';
 import {
   CURRENT_KDF_VERSION,
@@ -343,6 +348,17 @@ export function useMqttChat({
    * - 已存在的「发送中」乐观消息会被回显标记为已送达
    */
   const appendMessage = useCallback((msg: IChatMessage) => {
+    /**
+     * 收到他人消息的提示音。
+     *
+     * 刻意放在 `setMessages` 之外：状态更新函数必须是纯的（严格模式下会被调用两次），
+     * 音效写进去会响两下。自己的消息（`isMine`）不在这里响 —— 它们的反馈音是发送处的
+     * `confirm`，避免同一条消息两种声音。
+     */
+    if (!msg.isMine && (msg.msgType === 'text' || msg.msgType === 'image' || msg.msgType === 'file')) {
+      playIncomingMessageSound();
+    }
+
     // 记录发言时间（「潜水」判定的基准）：系统消息与动态事件都不算发言。
     // 放在去重判断之前，保证「乐观消息 + 回显」只记一次也不会漏记。
     if (msg.senderId && msg.msgType !== 'system' && msg.msgType !== 'event') {
@@ -1011,6 +1027,7 @@ export function useMqttChat({
         }
         if (evt.status === 'connecting') {
           setStatus('connecting');
+          playSound('conn:loading');
           stopTimers();
           return;
         }
@@ -1021,6 +1038,7 @@ export function useMqttChat({
         }
 
         setStatus('connected');
+        playSound('conn:ready');
 
         // 连接已建立但订阅尚未就绪：先起心跳与周期检查
         if (!evt.ready) {
@@ -1367,6 +1385,8 @@ export function useMqttChat({
       );
 
       markMessageStatus(msgId, ok ? 'sent' : 'failed');
+      if (ok) playOutgoingMessageSound();
+      else playSound('chat:error');
       if (!ok) toast.error('消息发送失败，点击该消息可重试');
       return ok;
     },
@@ -1474,6 +1494,7 @@ export function useMqttChat({
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
 
         if (!result.ok) {
+          playSound('chat:error');
           toast.error(
             result.reason === 'too-large'
               ? `图片过大，无法发送（上限 ${formatFileSize(MAX_IMAGE_PRECHECK)}）`
@@ -1564,6 +1585,7 @@ export function useMqttChat({
         setMessages((prev) => prev.filter((m) => m.id !== tempId));
 
         if (!result.ok) {
+          playSound('chat:error');
           toast.error(
             result.reason === 'too-large'
               ? `文件过大，无法发送（上限 ${formatFileSize(MAX_FILE_PRECHECK)}）`

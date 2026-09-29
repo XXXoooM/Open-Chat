@@ -1,0 +1,127 @@
+/**
+ * SpaceUI 引入所需的主题增量 + 暗色语义层。
+ *
+ * 本文件**只追加、不覆盖**既有主题（见 SPACEUI_INTEGRATION.md §1.2 与 §5 白名单）。
+ * 由 `src/styles/index.css` 末尾以一行 `@import` 引入。
+ *
+ * 四块内容的由来（每块都对应一个实测发现，不是推测）：
+ *
+ * 1. **暗色变体**：Tailwind v4 的 `dark:` 默认走 `prefers-color-scheme`，而本项目要做的是
+ *    「类驱动」切换（`next-themes` 把 `.dark` 写到 `<html>`）。不显式声明该变体，
+ *    组件里的 `dark:` 工具类不会响应切换。
+ *
+ * 2. **圆角档位与 error 语义色映射**：SpaceUI 组件使用了 `rounded-7xl`（Tailwind 默认只到
+ *    `4xl`）与 `bg-error` / `text-error-foreground`。上游在 `src/app/globals.css` 中定义
+ *    `--radius-5xl: 2.5rem / --radius-6xl: 3.125rem / --radius-7xl: 3.75rem`，
+ *    本项目按同值补齐；error 则映射到本项目既有的 destructive 红色，保持单主色体系。
+ *
+ * 3. **squircle 工具类**：上游通过 `@plugin '@usespaceui/squircle'` 引入 Houdini paint worklet
+ *    （含 `--tw-squircle-w/smooth` 自定义属性）实现超椭圆圆角。本项目**不引入该插件**：
+ *    改用原生 CSS `corner-shape: squircle`，理由是不必新增一个 0.1.x 早期依赖、无需
+ *    Houdini 运行时、且不依赖 JS。SpaceUI 组件总是把 `squircle` 与 `rounded-*` 成对使用，
+ *    不支持 `corner-shape` 的浏览器会自动退化为普通大圆角，属可接受的优雅降级。
+ *
+ * 4. **暗色语义覆盖**：既有的 `.dark`（`src/styles/vendor/tailwind-theme.css:192`）**只重映射了
+ *    调色板色阶（`--color-*`），没有覆盖语义 token**，而语义 token 只定义在
+ *    `src/tailwind-theme.css` 的 `:root` 里。由于该文件在 `src/index.css` 中**最后**被导入，
+ *    同等特异性下后者胜出，因此这里必须用 `html.dark`（特异性 0,1,1 > `:root` 的 0,1,0）
+ *    以确保覆盖成立，而不依赖导入顺序。
+ *    色值一律映射到本项目自有配色（暖珊瑚主色 + 暖调中性），不照搬上游的 zinc 灰阶。
+ */
+
+/* 1) 类驱动的暗色变体（同时覆盖自身与后代，兼容 html 上的 dark: 用法） */
+@custom-variant dark (&:is(.dark, .dark *));
+
+/* 2) 上游同值的圆角档位 + error 语义色工具类映射 */
+@theme inline {
+  --radius-5xl: 2.5rem;
+  --radius-6xl: 3.125rem;
+  --radius-7xl: 3.75rem;
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+}
+
+/* 3) 本项目缺失、而上游预设提供并会被组件引用的语义 token */
+:root {
+  /* error 与 destructive 同源：本项目用单一红色语义表达「错误」，避免两套红 */
+  --error: var(--destructive);
+  --error-foreground: var(--destructive-foreground);
+  /* 分段控件等「激活胶囊」底色；参考上游写法（light: 黑 10%） */
+  --pill-active-bg: rgb(0 0 0 / 10%);
+  /* 本项目不做标题字体区分，标题沿用正文字体栈 */
+  --font-heading: var(--font-sans);
+}
+
+/* 4) squircle 工具类：原生实现，替代上游的 Houdini 插件 */
+@utility squircle {
+  corner-shape: squircle;
+}
+
+/* 5) 暗色语义覆盖（仅在 <html class="dark"> 时生效；不影响当前默认外观） */
+html.dark {
+  color-scheme: dark;
+
+  --background: hsl(220 15% 11%);
+  --foreground: hsl(30 20% 95%);
+
+  --card: hsl(220 14% 14%);
+  --card-foreground: hsl(30 20% 95%);
+  --popover: hsl(220 14% 16%);
+  --popover-foreground: hsl(30 20% 95%);
+
+  /* 主色仍是珊瑚，但在深底上提亮 5% 以满足对比度 */
+  --primary: hsl(6 78% 62%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(6 30% 20%);
+  --secondary-foreground: hsl(6 60% 88%);
+  --accent: hsl(6 30% 20%);
+  --accent-foreground: hsl(6 60% 88%);
+
+  --muted: hsl(220 12% 18%);
+  --muted-foreground: hsl(220 10% 66%);
+
+  --info: hsl(205 65% 55%);
+  --info-foreground: hsl(205 100% 97%);
+  --success: hsl(130 50% 50%);
+  --success-foreground: hsl(115 77% 97%);
+  --warning: hsl(26 90% 58%);
+  --warning-foreground: hsl(33 100% 96%);
+  /* 浅底警告态三件套（UI-01）：深底场景下改为「深底 + 亮字」 */
+  --warning-surface: hsl(40 45% 18%);
+  --warning-surface-foreground: hsl(40 80% 82%);
+  --warning-surface-border: hsl(40 40% 30%);
+  --destructive: hsl(0 70% 60%);
+  --destructive-foreground: hsl(0 0% 100%);
+
+  --border: hsl(220 12% 24%);
+  --input: hsl(220 12% 24%);
+  --ring: hsl(6 78% 62%);
+
+  /* 图表色延续「同族暖调阶梯」（UI-02），仅在深底上整体提亮 */
+  --chart-1: hsl(6 78% 62%);
+  --chart-2: hsl(20 72% 60%);
+  --chart-3: hsl(36 70% 58%);
+  --chart-4: hsl(6 55% 70%);
+  --chart-5: hsl(30 35% 62%);
+
+  /* 激活胶囊在深底上改用白 14%（与上游一致的明暗翻转逻辑） */
+  --pill-active-bg: rgb(255 255 255 / 14%);
+}
+
+/**
+ * 6) 主题切换「无闪烁 + 平滑过渡」
+ * 思路取自上游 `src/app/globals.css`：首帧尚未就绪时对所有元素禁用过渡，避免刷新时
+ * 出现大面积颜色/位移动画；就绪后仅对颜色相关属性开放过渡。
+ * `theme-ready` 由主题提供者在挂载后写入 `<html>`（见首批接入）。
+ */
+html:not(.theme-ready) * {
+  transition: none !important;
+}
+
+html.theme-ready,
+html.theme-ready body {
+  transition:
+    color 0.3s ease,
+    background-color 0.3s ease,
+    border-color 0.3s ease;
+}
