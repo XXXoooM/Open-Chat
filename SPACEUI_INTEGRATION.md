@@ -640,3 +640,51 @@ src/index.css  src/tailwind-theme.css  src/styles/vendor/
 **验证的局限（如实记录）**：`readPastePayloadFromDataTransfer` 依赖真实的 `DataTransfer`，以及「浏览器到底往剪贴板里放了哪些格式」属于运行时行为，**未在真实浏览器中验证**（端到端脚本此前被跳过）。上面验证的是识别与解析的**核心逻辑**；真机行为需手动确认。
 
 **体积**：首屏 JS gzip 325.84 → **327.82 kB**（+1.98 kB）。**回滚**：删除 `src/lib/clipboard/`、还原 `ChatInputSection.tsx` 的粘贴处理（`onPaste`、窗口监听、`insertAtCursor`、`sendImage`/`sendFile` 收口）与 `map.ts` 的 `chat:paste` 映射。
+
+---
+
+## 12. 交付前审计与发布记录
+
+### 12.1 审计范围与方法
+
+覆盖第 11 章全部新增/改动文件（`lib/sound`、`lib/emoji`、`lib/clipboard`、`components/emoji`、`components/settings`、`hooks/useUiPreferences`、`hooks/useChatPaste`、`ChatInputSection`、`MessageListSection`、`OnlineUsersSection`、`ChatPage`、`AppShell`）。方法：逐文件通读 + 危险模式扫描 + 门禁（typecheck / eslint / build）+ 用真实源码做离线单测（字素切分、尺寸分档、HTML→Markdown、粘贴识别）。
+
+**危险模式扫描结果（全部为 0）**：`dangerouslySetInnerHTML`、`innerHTML`、`eval(`、`new Function`、`document.write`、`http://`（明文）、`target="_blank"`、`any`、`@ts-ignore`、`@ts-expect-error`、`eslint-disable`。
+
+### 12.2 发现与处置
+
+| # | 级别 | 问题 | 处置 |
+|---|---|---|---|
+| 1 | 中（正确性） | `EmojiImage` 用 `useState` 初始化加载阶段，`animated` 偏好切换后**已挂载的表情不会更新变体** —— 关掉「表情动画」后历史消息里的动图仍在动，与设置项显示不符 | **已修复**：新增 `useEffect` 同步 `animated`，切换时回到该变体起始阶段重新走回退链 |
+| 2 | 低（规范/可维护性） | 粘贴策略在 `ChatInputSection` 内实现，且「输入框内粘贴」与「页面任意处粘贴」两条入口**重复了同一套判定** | **已修复**：抽为 `hooks/useChatPaste.ts`，两条入口共用一份逻辑；组件回归展示职责（该文件因此减少 63 行） |
+| 3 | 低（可访问性） | 表情面板的代码预热只挂在 `onPointerEnter`，**键盘用户**首次打开面板会先看到骨架态 | **已修复**：抽出 `preloadPanel`，指针悬停与键盘聚焦共用 |
+| 4 | 低-中（规范） | `ChatInputSection.tsx` 418 行，超出「单文件 < 300 行」的建议。**改动前已约 330 行，属既有欠债**，本轮新增约 88 行 | **未处理，建议后续**：把焚毁控件（Switch + 标签 + 模式下拉，含模式记忆）抽为 `BurnModeControl.tsx`，可再减约 110 行 |
+| 5 | 中（性能，知情接受） | 动画表情体积是静态的 45～58 倍 | 已提供「表情动画」开关；`loading="lazy"` 只为进入视口的消息请求；浏览器缓存同一表情 |
+| 6 | 低（健壮性，知情接受） | 上游声明的两个镜像域名实测不可用 | 已从回退链剔除（保留必然失败的环节只会白等一次请求），回退链为动画 → 静态 → 原生字形 |
+| 7 | 低（遗留） | `chat:copy`、`ui:page` 等映射无调用点（项目没有复制消息或分页交互） | 保留映射并在 §11.11 记录，等有对应交互时再接 |
+| 8 | 低（不一致，知情接受） | 悬停音效只挂在文本气泡与成员头像上，图片/文件气泡没有 | 刻意收敛噪声范围，未铺满全站 |
+
+### 12.3 安全结论
+
+- **XSS 面干净**：无 `dangerouslySetInnerHTML` / `innerHTML` / `eval`；粘贴得到的 Markdown 始终以**纯文本**写入受控输入框并随消息发送，收发两端都按文本渲染，不经过任何 HTML 解析；
+- **HTML 解析安全**：转换用 `DOMParser`（不执行脚本）并显式剔除 `script`/`style`/`noscript` 等标签；`href` 为 `javascript:` 时丢弃该链接；
+- **本地存储**：偏好存档逐字段校验类型，非法值只回落该字段；解析失败不抛异常；
+- **外部请求**：音效库零网络请求（Web Audio 程序化合成）；外部请求仅「表情图片 CDN」，且可被「表情图片渲染」开关完全关闭；
+- **网络出口**：URL 由码点十六进制拼装，用户输入无法影响域名（无开放重定向/SSRF 面）。
+
+### 12.4 未完成的验证（如实记录）
+
+浏览器端到端脚本（进入房间、开关交互、面板插入、刷新持久化、控制台无报错、顶栏 DOM 稳定性）**已编写但被用户跳过执行**；`DataTransfer` 的真机行为与音频解锁的实际听觉效果同样未在真实浏览器中验证。因此第 11 章列出的 5 项手动确认清单仍然有效。
+
+### 12.5 发布记录（2026-09-30）
+
+| 项 | 结果 |
+|---|---|
+| 提交 | `31630d2` — `feat(chat): 接入 SpaceUI 组件能力（主题/表情/音效/粘贴）并统一开关控件`（64 文件，+8020/-51） |
+| 推送 | ⚠️ 本机 **22 端口被网络阻断**，改用 GitHub 的 443 端点完成：`git push ssh://git@ssh.github.com:443/XXXoooM/Open-Chat.git main`（成功，`f5d932c..31630d2`） |
+| CI 触发 | Cloudflare Pages **自动触发**（GitHub 上出现 `Cloudflare Pages` check-run，无需额外配置） |
+| 构建结论 | `status=completed`、`conclusion=success` |
+| 部署 | 项目 `open-chat`，Environment Production，Branch main，Source `31630d2`，部署 `6f5a1fe2-10ac-450e-80c6-a5164c9d8352` |
+| 线上产物验证 | `https://chat.yuia.fun` 主 JS 内命中本轮标记：`cdn.spaceui.one` ×1、`EmojiPickerPanel` ×2、`__global_ui_preferences` ×1、「已按 Markdown 解析粘贴内容」×1、「表情动画」×1 —— 证明新功能已实际上线，而非仅构建成功 |
+
+**一处需要知情的差异**：本地构建的主 JS 指纹（`index-DQ9RDjlx.js`）与 CI 构建（`index-lRGtKpNV.js`）不同，而 CSS 指纹完全相同（`index-BX2_UpQq.css`）。原因是本地 `node_modules` 经过多次 `--no-save` 安装与 `prune` 后与 lockfile 存在漂移；`npm ci` 在 CI 上严格按 lockfile 安装。**结论：以线上产物中的功能标记为准（已命中），本地体积数字仅作趋势参考。**
