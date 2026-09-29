@@ -133,6 +133,15 @@ const PROTO_V2 = 2;
 
 const HEARTBEAT_INTERVAL = 15000;
 const PRESENCE_TIMEOUT = 30000;
+/**
+ * 中继通路下的成员存活兜底时长（120 秒）。
+ *
+ * 中继通路**不再依赖心跳到达**维持在线名册：Durable Object 直接以 socket 关闭
+ * （或 45 秒失活清扫）广播 `peer-left` 来判定离开 —— 比心跳超时更及时，
+ * 且不产生任何扇出。这里的长超时仅作为 `peer-left` 丢失时的兜底，
+ * 避免成员记录永久滞留。
+ */
+const RELAY_PRESENCE_TIMEOUT = 120000;
 const META_WAIT_MS = 2000;
 /** 建房间前的随机抖动，避免多客户端同时判定「我是创建者」（FUNC-03） */
 const META_WAIT_JITTER_MS = 2000;
@@ -569,7 +578,10 @@ export function useMqttChat({
               user.id === clientIdRef.current,
             );
           }
-        }, PRESENCE_TIMEOUT),
+        },
+          // 中继通路以 peer-left 判定离开，故本地超时只作兜底并显著放宽
+          transportRef.current?.kind === 'relay' ? RELAY_PRESENCE_TIMEOUT : PRESENCE_TIMEOUT,
+        ),
       );
     },
     [clearPresenceTimer, appendEvent],
@@ -1013,11 +1025,19 @@ export function useMqttChat({
         if (!evt.ready) {
           // 定时器统一由 stopTimers 清理后再启动，重连不会累积（FUNC-02）
           stopTimers();
-          heartbeatRef.current = setInterval(() => {
-            if (transport.isConnected() && metaReceivedRef.current && !destroyedRef.current) {
-              publishPresence('heartbeat');
-            }
-          }, HEARTBEAT_INTERVAL);
+          if (transport.kind === 'relay') {
+            // 中继通路**不启动**周期性心跳：存活由连接层承担 —— DO 每次收到帧
+            // （含 20 秒保活 ping）都会刷新 lastSeen，socket 关闭或失活清扫时广播 peer-left。
+            // 周期性 presence 心跳在中继侧会对全房间扇出（实测 N=100 时为 10000 帧/周期、
+            // 消息 RTT 劣化至 467ms），而它携带的信息（「我还活着」）中继本就掌握。
+            logger.info('中继通路：跳过周期性心跳，存活以连接状态与 peer-left 为准');
+          } else {
+            heartbeatRef.current = setInterval(() => {
+              if (transport.isConnected() && metaReceivedRef.current && !destroyedRef.current) {
+                publishPresence('heartbeat');
+              }
+            }, HEARTBEAT_INTERVAL);
+          }
           scheduleLifecycleCheck();
           scheduleDiveScan();
           return;

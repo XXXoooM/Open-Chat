@@ -53,6 +53,13 @@ interface IRoomStorage {
 
 const STORAGE_KEY = 'state';
 const READ_ID_MEMORY = 500;
+/**
+ * 连接附件的落盘节流窗口。
+ * 必须显著小于 RELAY_SOCKET_TIMEOUT_MS（45s），否则 `lastSeen` 的落盘陈旧度
+ * 会让清扫误杀仍在活跃的连接。取 10s：小于客户端保活周期（20s），
+ * 因此每次保活仍会真实落盘一次。
+ */
+const ATTACHMENT_PERSIST_INTERVAL_MS = 10000;
 
 function emptyStorage(): IRoomStorage {
   return {
@@ -69,6 +76,24 @@ function emptyStorage(): IRoomStorage {
 export class RoomDO {
   private readonly state: DurableObjectState;
 
+  /**
+   * 单次唤醒内的存储缓存。
+   *
+   * 动机：`handlePub` / `handleRead` / `alarm` 每条消息都 `load()` 一次，而
+   * Durable Object 的存储调用是整条处理链上最贵的一环（实测单帧均耗时约 60µs）。
+   *
+   * 为什么可以安全缓存：DO 单线程执行，且存储操作受输入门保护（await 期间不会
+   * 交错执行其它请求）；只要**所有写入都经由 `save()`** 维护该字段，读到的即最新值。
+   * DO 休眠后该字段随实例消失，下次唤醒会重新从存储读取 —— 对调用方语义不变。
+   */
+  private store: IRoomStorage | null = null;
+
+  /**
+   * 连接附件落盘节流用的时间戳。
+   * 用 WeakMap 而非 Map：连接关闭后条目自动回收，不会造成实例级泄漏。
+   */
+  private readonly lastPersistAt = new WeakMap<WebSocket, number>();
+
   constructor(state: DurableObjectState) {
     this.state = state;
   }
@@ -76,12 +101,14 @@ export class RoomDO {
   // ── 存储 ──────────────────────────────────────────────────────
 
   private async load(): Promise<IRoomStorage> {
+    if (this.store) return this.store;
     const stored = await this.state.storage.get<IRoomStorage>(STORAGE_KEY);
-    if (!stored) return emptyStorage();
-    return { ...emptyStorage(), ...stored };
+    this.store = stored ? { ...emptyStorage(), ...stored } : emptyStorage();
+    return this.store;
   }
 
   private async save(store: IRoomStorage): Promise<void> {
+    this.store = store;
     await this.state.storage.put(STORAGE_KEY, store);
   }
 
@@ -91,10 +118,25 @@ export class RoomDO {
     return { clientId: '', channels: [], lastSeen: Date.now(), readIds: [] };
   }
 
-  private persistAttachment(ws: WebSocket, att: IAttachment): void {
+  /**
+   * 落盘连接附件（休眠后靠它恢复 per-connection 状态）。
+   *
+   * 默认**节流**：`lastSeen` 每帧都会刷新，但无需每帧都序列化一次；突发发送时
+   * 这能省下大量重复序列化。窗口 10s 远小于失活阈值 45s，且小于保活周期 20s，
+   * 因此保活仍会每次落盘，`lastSeen` 的落盘陈旧度始终 ≤ 一个保活周期。
+   *
+   * `channels` / `readIds` 等**语义状态**变更时必须传 `force: true`：
+   * 否则一旦在节流窗口内休眠，这些状态会丢失（`readIds` 丢失会导致重复已读计数）。
+   */
+  private persistAttachment(ws: WebSocket, att: IAttachment, force = false): void {
     if (att.readIds.length > READ_ID_MEMORY) {
       att.readIds.splice(0, att.readIds.length - READ_ID_MEMORY);
     }
+    const now = Date.now();
+    if (!force && now - (this.lastPersistAt.get(ws) ?? 0) < ATTACHMENT_PERSIST_INTERVAL_MS) {
+      return;
+    }
+    this.lastPersistAt.set(ws, now);
     ws.serializeAttachment(att);
   }
 
@@ -205,11 +247,13 @@ export class RoomDO {
     }
     if (frame.t === 'hello') {
       att.channels = frame.channels;
-      this.persistAttachment(ws, att);
+      // 语义状态（订阅频道）必须落盘，不能被节流跳过
+      this.persistAttachment(ws, att, true);
       return;
     }
     if (frame.t === 'read') {
-      this.persistAttachment(ws, att);
+      // readIds 属于去重用的语义状态，同样必须落盘
+      this.persistAttachment(ws, att, true);
       await this.handleRead(att, frame.id);
       return;
     }
@@ -348,6 +392,8 @@ export class RoomDO {
       this.broadcastAll({ t: 'closed' });
       for (const ws of this.state.getWebSockets()) ws.close(1000, 'room-closed');
       await this.state.storage.deleteAll();
+      // 存储已清空，必须同时丢弃内存缓存：否则后续连接的 load() 会读到已删除的房间
+      this.store = null;
       return;
     }
 
@@ -364,6 +410,10 @@ export class RoomDO {
       const att = this.attachmentOf(ws);
       if (now - att.lastSeen < RELAY_SOCKET_TIMEOUT_MS) continue;
       this.send(ws, { t: 'error', code: 'timeout', message: '连接超时' });
+      // 服务端主动关闭不一定会触发 webSocketClose，因此这里显式广播离开事件。
+      // 客户端已不再靠心跳维持名册，若此处不发，失活连接会一直留在对端名册里，
+      // 直到本地兜底超时（120 秒）才被清理。
+      if (att.clientId) this.broadcastAll({ t: 'peer-left', id: att.clientId }, ws);
       ws.close(1000, 'timeout');
     }
 
