@@ -72,3 +72,8 @@ pnpm-lock.yaml
 # Agent 工作数据：含内部规划与审计笔记，不随公开仓库发布
 # （仅取消版本跟踪，本地目录保留；取消跟踪需执行 git rm -r --cached .codebuddy）
 .codebuddy/
+
+# 平台工具链写入的工作区元数据（由 IDE / 平台插件生成，与本应用无关）
+# 已从版本库移除；此处忽略以防再次被误提交。本地文件保留，不影响构建与运行。
+.spark/
+.spark_project
