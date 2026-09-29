@@ -1,7 +1,7 @@
 // EXPORTS: createMqttTransport
 
 import mqtt, { type MqttClient } from 'mqtt';
-import { logger } from '@lark-apaas/client-toolkit-lite';
+import { logger } from '@/lib/logger';
 import { BROKER_PASSWORD, BROKER_URL, BROKER_USERNAME } from '@/lib/mqttConfig';
 import type {
   ChannelName,

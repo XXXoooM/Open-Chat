@@ -1,6 +1,6 @@
 // EXPORTS: createRelayTransport
 
-import { logger } from '@lark-apaas/client-toolkit-lite';
+import { logger } from '@/lib/logger';
 import { RELAY_URL } from '@/lib/relayConfig';
 import { parseServerFrame } from '@shared/relay/protocol';
 import type {

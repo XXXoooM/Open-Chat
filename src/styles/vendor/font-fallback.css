@@ -1,0 +1,54 @@
+/**
+ * 字体别名 —— 自持副本（原平台样式表中的 font-family.css，已去平台化改名）。
+ *
+ * 这些 @font-face 不下载任何字体，只用 `local()` 把**特定码位**指向本机已安装的字体，
+ * 因此它们不是「平台专有字体」，删掉会改变实际字形：
+ *   - 中文引号（U+2018/2019/201A/201C/201D/201E）会失去苹方的字形与字宽
+ *   - 少数 emoji（U+1F21A 等）会失去系统彩色 emoji 的指定
+ *
+ * 与上游的唯一差异：字体族名不再带平台前缀（渲染行为完全一致）。
+ * 改名后必须同步 `src/tailwind-theme.css` 中的 `--font-sans` 字体栈。
+ */
+
+/* ── 中文引号：交由本机苹方渲染 ───────────────────────────────── */
+@font-face {
+  font-family: CjkQuoteFont;
+  font-weight: 300;
+  src: local('PingFangSC-Light');
+  unicode-range: U+2018, U+2019, U+201A, U+201C, U+201D, U+201E;
+}
+
+@font-face {
+  font-family: CjkQuoteFont;
+  font-weight: 400;
+  src: local('PingFangSC-Regular');
+  unicode-range: U+2018, U+2019, U+201A, U+201C, U+201D, U+201E;
+}
+
+@font-face {
+  font-family: CjkQuoteFont;
+  font-weight: 500;
+  src: local('PingFangSC-Medium');
+  unicode-range: U+2018, U+2019, U+201A, U+201C, U+201D, U+201E;
+}
+
+@font-face {
+  font-family: CjkQuoteFont;
+  font-weight: 600;
+  src: local('PingFangSC-Semibold');
+  unicode-range: U+2018, U+2019, U+201A, U+201C, U+201D, U+201E;
+}
+
+/* ── emoji 兜底 ──────────────────────────────────────────────── */
+@font-face {
+  font-family: EmojiFallbackFont;
+  src: local('Apple Color Emoji'), local('Noto Color Emoji');
+  unicode-range: U+1F21A, U+1F250, U+1F237, U+26A0;
+}
+
+/* ── Safari 本地字体兜底：U+0000 指向 Helvetica Neue ──────────── */
+@font-face {
+  font-family: SafariLocalFallback;
+  src: local('Helvetica Neue');
+  unicode-range: U+0000;
+}

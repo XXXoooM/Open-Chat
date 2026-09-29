@@ -1,0 +1,20 @@
+/**
+ * 项目自持样式入口 —— 替代原 `@lark-apaas/client-toolkit-lite/styles.css`。
+ *
+ * 原平台样式表实际由五部分组成，对应关系与取舍如下：
+ *   - `theme-layer.css`    → 本文件开头的 @layer 声明（原文件仅声明层序，无实际规则）
+ *   - `tailwind-theme.css` → `vendor/tailwind-theme.css`（调色板 token，原样保留，
+ *                            因其中是自定义值：如 `--color-blue-500` 为 #5083fb）
+ *   - `override.css`       → `vendor/override.css`（base 层的边框色与 body 底色）
+ *   - `font-family.css`    → `vendor/font-fallback.css`（@font-face 别名，映射本机
+ *                            PingFang SC 与系统 emoji；字体族名已去平台化）
+ *   - `inspector.dev.css`  → **已丢弃**：平台开发期探针样式，与本项目无关
+ *
+ * 注意 `@layer` 语句必须位于 `@import` 之前：CSS 规范只允许 `@charset` 与 `@layer`
+ * 语句前置 `@import`。层序与 tailwindcss 自身声明的一致，因此不改变既有层叠结果。
+ */
+@layer theme, base, components, utilities;
+
+@import './vendor/tailwind-theme.css';
+@import './vendor/override.css';
+@import './vendor/font-fallback.css';

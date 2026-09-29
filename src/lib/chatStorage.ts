@@ -1,7 +1,7 @@
 // EXPORTS: NICKNAME_KEY, ROOM_ID_KEY, readStoredNickname, readStoredRoomId,
 //          writeStoredChatIdentity, readSessionPassword, writeSessionPassword, clearSessionPassword
 
-import { scopedStorage } from '@lark-apaas/client-toolkit-lite';
+import { storage } from '@/lib/storage';
 
 /**
  * 聊天室本地存储的单一事实来源。
@@ -10,7 +10,7 @@ import { scopedStorage } from '@lark-apaas/client-toolkit-lite';
  * `ChatPage.tsx` 与 `NicknameInputSection.tsx` 中各定义一份，改名时容易只改一侧。
  *
  * 密码单独处理（`FUNC-06`）：
- * - 昵称/房间号属于低敏信息，放入平台 scopedStorage 长期保留，便于下次自动回填
+ * - 昵称/房间号属于低敏信息，放入本应用自有存储长期保留，便于下次自动回填
  * - 密码只写入 sessionStorage：刷新页面可恢复连接，关闭标签页即失效，
  *   既不进入长期存储，也不随构建产物分发（不会硬编码在源码里）
  */
@@ -21,16 +21,16 @@ export const PRIVACY_SETTINGS_KEY = '__global_privacy_settings';
 const PASSWORD_KEY = '__global_chat_password';
 
 export function readStoredNickname(): string {
-  return scopedStorage.getItem(NICKNAME_KEY) ?? '';
+  return storage.getItem(NICKNAME_KEY) ?? '';
 }
 
 export function readStoredRoomId(): string {
-  return scopedStorage.getItem(ROOM_ID_KEY) ?? '';
+  return storage.getItem(ROOM_ID_KEY) ?? '';
 }
 
 export function writeStoredChatIdentity(roomId: string, nickname: string): void {
-  scopedStorage.setItem(ROOM_ID_KEY, roomId);
-  scopedStorage.setItem(NICKNAME_KEY, nickname);
+  storage.setItem(ROOM_ID_KEY, roomId);
+  storage.setItem(NICKNAME_KEY, nickname);
 }
 
 export function readSessionPassword(): string {
@@ -61,7 +61,7 @@ export function clearSessionPassword(): void {
  * 解析失败一律返回 null，由上层回落到默认值。
  */
 export function readStoredPrivacySettings(): Record<string, unknown> | null {
-  const raw = scopedStorage.getItem(PRIVACY_SETTINGS_KEY);
+  const raw = storage.getItem(PRIVACY_SETTINGS_KEY);
   if (!raw) return null;
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -74,7 +74,7 @@ export function readStoredPrivacySettings(): Record<string, unknown> | null {
 
 export function writeStoredPrivacySettings(settings: Record<string, unknown>): void {
   try {
-    scopedStorage.setItem(PRIVACY_SETTINGS_KEY, JSON.stringify(settings));
+    storage.setItem(PRIVACY_SETTINGS_KEY, JSON.stringify(settings));
   } catch {
     // 存储不可用时静默降级为「本次会话内有效」
   }

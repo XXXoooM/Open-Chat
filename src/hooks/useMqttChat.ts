@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
-import { logger } from '@lark-apaas/client-toolkit-lite';
+import { logger } from '@/lib/logger';
 import {
   CURRENT_KDF_VERSION,
   createKeyRing,

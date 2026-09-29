@@ -70,7 +70,7 @@
 
   /* 字体栈：必须在 @theme inline 的 --font-sans 中镜像同一份值 */
   --font-sans:
-    'Noto Sans SC', 'LarkHackSafariFont', 'LarkEmojiFont', 'LarkChineseQuote',
+    'Noto Sans SC', 'SafariLocalFallback', 'EmojiFallbackFont', 'CjkQuoteFont',
     '-apple-system', 'BlinkMacSystemFont', 'Helvetica Neue', 'Tahoma',
     'PingFang SC', 'Microsoft Yahei', 'Arial', 'Hiragino Sans GB', 'sans-serif',
     'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
@@ -138,10 +138,11 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* 修复 AUDIT.md UI-05：此前这里用一份不含平台字体（LarkHackSafariFont 等）
-     的短栈覆盖了 :root 的完整字体栈，且行尾多了一个分号。现与 :root 保持一致。 */
+  /* 修复 AUDIT.md UI-05：此前这里用一份不含引号/emoji 字体别名（见
+     src/styles/vendor/font-fallback.css）的短栈覆盖了 :root 的完整字体栈，
+     且行尾多了一个分号。现与 :root 保持一致。 */
   --font-sans:
-    'Noto Sans SC', 'LarkHackSafariFont', 'LarkEmojiFont', 'LarkChineseQuote',
+    'Noto Sans SC', 'SafariLocalFallback', 'EmojiFallbackFont', 'CjkQuoteFont',
     '-apple-system', 'BlinkMacSystemFont', 'Helvetica Neue', 'Tahoma',
     'PingFang SC', 'Microsoft Yahei', 'Arial', 'Hiragino Sans GB', 'sans-serif',
     'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
