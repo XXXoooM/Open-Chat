@@ -1,17 +1,10 @@
 // EXPORTS: default
 import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
-import {
-  Send,
-  Plus,
-  Image as ImageIcon,
-  File as FileIcon,
-  Loader2,
-  Flame,
-  Check,
-} from 'lucide-react';
+import { Send, Plus, Image as ImageIcon, File as FileIcon, Loader2, Flame, Check, Lock } from 'lucide-react';
 import { EmojiTrigger } from '@/components/emoji/EmojiTrigger';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
@@ -22,8 +15,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useChatPaste } from '@/hooks/useChatPaste';
+import type { IMessagePrivacyOptions } from '@/hooks/useMqttChat';
 import { pushRecentEmoji } from '@/hooks/useUiPreferences';
 import { formatFileSize } from '@/lib/media';
+import { resolveVeilDurationMs } from '@/lib/veilPolicy';
 import { playSound } from '@/lib/sound/map';
 import { MAX_FILE_PRECHECK, MAX_UPLOAD_PRECHECK } from '@/lib/chatLimits';
 import {
@@ -36,7 +31,8 @@ import {
 import { toast } from 'sonner';
 
 interface ChatInputSectionProps {
-  onSend: (content: string) => void | Promise<unknown>;
+  /** 逐条消息的隐私选项（模糊 / 阅后自焚）由此传入，缺省即普通消息 */
+  onSend: (content: string, privacy?: IMessagePrivacyOptions) => void | Promise<unknown>;
   onSendImage: (file: File) => void | Promise<unknown>;
   onSendFile: (file: File) => void | Promise<unknown>;
   /** 内容变化时通知父层（父层完成节流与上报，输入框不关心传输细节） */
@@ -67,6 +63,32 @@ export default function ChatInputSection({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
+
+  /**
+   * 逐条消息的隐私选项。
+   *
+   * 关键取舍：**发送后自动复位为关闭**。隐私选项与「焚毁模式」不同 —— 后者是房间级的
+   * 长期偏好，而这些是「这一条要不要更私密」的临时决定。若保持开启，用户下一次随手
+   * 发送时会不经意地发出私密消息（或反之以为没开），因此默认按「每条都要重新选择」处理。
+   */
+  const [veilSend, setVeilSend] = useState(false);
+  const [ephemeralSend, setEphemeralSend] = useState(false);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
+
+  /** 当前输入的查看时长预览（字数 → 10/20/30 秒），让规则在发送前可见 */
+  const veilPreviewSeconds = Math.round(resolveVeilDurationMs(value) / 1000);
+
+  /** 组装本次发送的隐私选项（自焚以模糊为前提；关闭时返回 undefined） */
+  function currentPrivacy(): IMessagePrivacyOptions | undefined {
+    if (!veilSend) return undefined;
+    return { veil: true, ephemeral: ephemeralSend };
+  }
+
+  /** 发送后复位，见上方说明 */
+  function resetPrivacy() {
+    setVeilSend(false);
+    setEphemeralSend(false);
+  }
 
   const trimmed = value.trim();
   const canSend = trimmed.length > 0 && !disabled && !sending;
@@ -106,7 +128,8 @@ export default function ChatInputSection({
   function handleSubmit(e: FormEvent) {
     e.preventDefault();
     if (!canSend) return;
-    onSend(trimmed);
+    onSend(trimmed, currentPrivacy());
+    resetPrivacy();
     setValue('');
     inputRef.current?.focus();
   }
@@ -115,7 +138,8 @@ export default function ChatInputSection({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!canSend) return;
-      onSend(trimmed);
+      onSend(trimmed, currentPrivacy());
+      resetPrivacy();
       setValue('');
     }
   }
@@ -377,6 +401,73 @@ export default function ChatInputSection({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* 私密消息选项：模糊（需主动揭示）与阅后自焚（揭示后超时即删除） */}
+          <Popover
+            open={privacyOpen}
+            onOpenChange={(open) => {
+              playSound(open ? 'ui:open' : 'ui:close');
+              setPrivacyOpen(open);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                disabled={disabled}
+                aria-label="私密消息选项"
+                className={`h-10 w-10 shrink-0 rounded-full ${veilSend ? 'text-primary' : ''}`}
+              >
+                <Lock className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" side="top" sideOffset={8} className="w-64 p-3">
+              <p className="mb-2 text-xs font-medium text-muted-foreground">下一条消息</p>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <span id="privacy-veil-label" className="text-sm text-foreground">
+                    模糊消息
+                  </span>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    对方需点击才能查看。按字数决定可看时长：少于 15 字 10 秒、15~30 字 20 秒、超过 30 字 30 秒；
+                    超时后重新模糊。
+                  </p>
+                </div>
+                <Switch
+                  checked={veilSend}
+                  aria-labelledby="privacy-veil-label"
+                  onCheckedChange={(next) => {
+                    playSound(next ? 'ui:toggle-on' : 'ui:toggle-off');
+                    setVeilSend(next);
+                    if (!next) setEphemeralSend(false);
+                  }}
+                />
+              </div>
+              <div className="mt-3 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <span id="privacy-ephemeral-label" className="text-sm text-foreground">
+                    阅后自焚
+                  </span>
+                  <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                    在模糊消息基础上：倒计时结束或窗口失焦即删除，不再重新模糊。
+                  </p>
+                </div>
+                <Switch
+                  checked={ephemeralSend}
+                  disabled={!veilSend}
+                  aria-labelledby="privacy-ephemeral-label"
+                  onCheckedChange={(next) => {
+                    playSound(next ? 'ui:toggle-on' : 'ui:toggle-off');
+                    setEphemeralSend(next);
+                  }}
+                />
+              </div>
+              <p className="mt-2 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+                当前输入 {veilPreviewSeconds ? `可查看 ${veilPreviewSeconds} 秒` : '为空'}；发送后选项自动复位。
+              </p>
+            </PopoverContent>
+          </Popover>
 
           {/* 表情入口：位于输入框左侧 */}
           <EmojiTrigger onPick={handleEmojiPick} disabled={disabled} />

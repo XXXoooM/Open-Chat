@@ -1,6 +1,6 @@
 // EXPORTS: createTransport, getTransportReadiness, getTransportKind
 
-import { BROKER_CONFIG_HINT, HAS_BROKER_CONFIG } from '@/lib/mqttConfig';
+import { BROKER_CONFIG_HINT, BROKER_URL_INSPECTION, HAS_BROKER_CONFIG } from '@/lib/mqttConfig';
 import { HAS_RELAY_CONFIG } from '@/lib/relayConfig';
 import { createMqttTransport } from './mqttTransport';
 import { createRelayTransport } from './relayTransport';
@@ -32,6 +32,11 @@ export type {
  */
 export function getTransportReadiness(): ITransportReadiness {
   if (HAS_RELAY_CONFIG) return { ready: true, hint: '' };
+  // 地址「填了但填错」按未就绪处理：否则界面显示一切正常，实际永远连不上，
+  // 而用户看到的只是「未连接」，无从判断是凭据问题还是地址问题。
+  if (BROKER_URL_INSPECTION.fatal) {
+    return { ready: false, hint: BROKER_URL_INSPECTION.fatal };
+  }
   return { ready: HAS_BROKER_CONFIG, hint: BROKER_CONFIG_HINT };
 }
 

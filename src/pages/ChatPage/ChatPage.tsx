@@ -29,7 +29,12 @@ import {
 import OnlineUsersSection from './components/OnlineUsersSection';
 import MessageListSection, { type IMessage } from './components/MessageListSection';
 import ChatInputSection from './components/ChatInputSection';
-import { useMqttChat, type ConnectionStatus, type IChatMessage } from '@/hooks/useMqttChat';
+import {
+  useMqttChat,
+  type ConnectionStatus,
+  type IChatMessage,
+  type IMessagePrivacyOptions,
+} from '@/hooks/useMqttChat';
 import { formatTypingText } from '@/hooks/useTypingIndicator';
 import { usePrivacyBlur } from '@/hooks/usePrivacyBlur';
 import {
@@ -156,6 +161,7 @@ export default function ChatPage() {
     extendRoom,
     typers,
     notifyTyping,
+    consumeMessage,
   } = useMqttChat({
     roomId,
     password,
@@ -221,6 +227,8 @@ export default function ChatPage() {
       burn: m.burn,
       burnAt: m.burnAt,
       burned: m.burned,
+      veil: m.veil,
+      ephemeral: m.ephemeral,
       readBy: m.readBy,
       readTotal: m.readTotal,
       imageData: m.imageData,
@@ -237,9 +245,10 @@ export default function ChatPage() {
 
   /** 发送时把当前焚毁策略转换为协议对象（'off' → 不携带焚毁元数据） */
   const handleSend = useCallback(
-    (content: string) => {
+    (content: string, privacyOptions?: IMessagePrivacyOptions) => {
       const burn: IBurnPolicy | undefined = toBurnPolicy(effectiveBurnMode, privacy.burnTtlMs);
-      return sendMessage(content, burn);
+      // 逐条隐私选项（模糊 / 阅后自焚）随消息密文一起送出，中继无需参与
+      return sendMessage(content, burn, privacyOptions);
     },
     [sendMessage, effectiveBurnMode, privacy.burnTtlMs],
   );
@@ -529,6 +538,7 @@ export default function ChatPage() {
             messages={listMessages}
             onFileDownload={handleFileDownload}
             onRetryMessage={handleRetryMessage}
+            onConsume={consumeMessage}
           />
         </div>
 

@@ -71,6 +71,19 @@ export interface IChatMessage {
   /** 已被焚毁：先呈现为「已销毁」，淡出后再从列表移除 */
   burned?: boolean;
   /**
+   * 模糊消息：接收方看到的是模糊影像，需主动点击（或键盘）揭示，
+   * 查看时长按字数分档（见 `lib/veilPolicy.ts`）。
+   *
+   * 与「焚毁」是**两套独立语义**：焚毁由定时或服务端仲裁，模糊与揭示则完全是
+   * **接收端本地行为** —— 发送方无法得知谁看过、看了多久，界面也不应暗示相反的信息。
+   */
+  veil?: boolean;
+  /**
+   * 阅后自焚：揭示后倒计时结束、或窗口失焦时，即从列表移除。
+   * 语义上**依赖 `veil`**：必须先主动打开才开始计时，否则消息会在被读到之前就消失。
+   */
+  ephemeral?: boolean;
+  /**
    * 已读人数 / 应读人数。
    * 仅对自己发出的、启用焚毁的消息，且仅在服务端权威通路下会被填入 ——
    * 数值一律来自中继回执，客户端不自行推算，避免显示看似正常却无依据的进度。
@@ -188,7 +201,18 @@ type RetryableMessage = Pick<IChatMessage, 'id' | 'content' | 'timestamp'> & {
   status?: MessageStatus;
   /** 重试必须保留焚毁策略，否则「读后焚毁」会在重试后静默退化为普通消息 */
   burn?: IBurnPolicy;
+  /** 同理：重试必须保留隐私标记，否则「模糊/自焚」会在重试后静默失效 */
+  veil?: boolean;
+  ephemeral?: boolean;
 };
+
+/** 逐条消息的隐私选项（发送时选择，随密文一起送达） */
+export interface IMessagePrivacyOptions {
+  /** 模糊消息：接收方需主动揭示，查看时长按字数分档 */
+  veil?: boolean;
+  /** 阅后自焚：揭示后超时即删除；语义上依赖 veil */
+  ephemeral?: boolean;
+}
 
 interface IPresencePayload {
   kind: 'join' | 'leave' | 'heartbeat' | 'request-users';
@@ -224,6 +248,15 @@ interface ITextPayload {
    * 而中继通路额外通过明文元数据获得权威仲裁能力。
    */
   burn?: IBurnPolicy;
+  /**
+   * 模糊消息标记：放在**密文内**传递。
+   *
+   * 为什么不像 burn 那样走明文元数据：模糊与揭示是纯接收端行为，中继无需参与仲裁，
+   * 因此没有必要把「这条消息是私密消息」暴露给中继 —— 少一项明文元数据就少一分信息面。
+   */
+  veil?: boolean;
+  /** 阅后自焚标记（依赖 veil，与 veil 一同位于密文内） */
+  ephemeral?: boolean;
 }
 
 interface IBinaryMetaPayload {
@@ -1272,6 +1305,9 @@ export function useMqttChat({
                 status: 'sent',
                 burn: chat.burn,
                 burnAt,
+                veil: chat.veil === true,
+                // 与发送侧同一套归一化：自焚必须以模糊为前提
+                ephemeral: chat.veil === true && chat.ephemeral === true,
               });
               if (burnAt) scheduleBurn(chat.id, burnAt);
 
@@ -1336,9 +1372,20 @@ export function useMqttChat({
 
   // ── 发送文字消息（乐观上屏 + 失败可重试，FUNC-04 / FUNC-09）────
   const sendMessage = useCallback(
-    async (content: string, burn?: IBurnPolicy): Promise<boolean> => {
+    async (
+      content: string,
+      burn?: IBurnPolicy,
+      privacy?: IMessagePrivacyOptions,
+    ): Promise<boolean> => {
       const trimmed = content.trim();
       if (!trimmed) return false;
+
+      /**
+       * 归一化隐私选项：`ephemeral` 必须以 `veil` 为前提。
+       * 在这里收口一次，避免「自焚但初始可见」这种会让消息无从读起的组合流到下游。
+       */
+      const veil = privacy?.veil === true;
+      const ephemeral = veil && privacy?.ephemeral === true;
 
       if (!transportRef.current?.isConnected() || !ringRef.current) {
         toast.error('尚未连接聊天服务，消息未发送');
@@ -1365,6 +1412,8 @@ export function useMqttChat({
         status: 'sending',
         burn,
         burnAt,
+        veil,
+        ephemeral,
       });
       if (burnAt) scheduleBurn(msgId, burnAt);
 
@@ -1379,6 +1428,8 @@ export function useMqttChat({
           content: trimmed,
           timestamp,
           burn,
+          veil: veil || undefined,
+          ephemeral: ephemeral || undefined,
         } satisfies ITextPayload & { msgType: string },
         // id / burn 是交给中继的最小明文元数据，用于权威焚毁与回执仲裁
         { id: burn ? msgId : undefined, burn },
@@ -1415,6 +1466,8 @@ export function useMqttChat({
           content: message.content,
           timestamp: message.timestamp,
           burn: message.burn,
+          veil: message.veil || undefined,
+          ephemeral: message.ephemeral || undefined,
         } satisfies ITextPayload & { msgType: string },
         { id: message.burn ? message.id : undefined, burn: message.burn },
       );
@@ -1632,6 +1685,11 @@ export function useMqttChat({
     sendFile,
     retryMessage,
     extendRoom,
+    /**
+     * 移除一条消息（阅后自焚超时、或窗口失焦时由界面调用）。
+     * 复用焚毁的移除链路：先呈现「已销毁」，淡出后再从列表移除。
+     */
+    consumeMessage: markMessageBurned,
     /** 正在输入的其他人（开关关闭时恒为空数组） */
     typers: typing.typers,
     /** 由输入框在内容变化时调用，内部完成节流与上报 */

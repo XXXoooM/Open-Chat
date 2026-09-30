@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { EmojiText } from '@/components/emoji/EmojiText';
+import { VeiledMessageView } from '@/pages/ChatPage/components/VeiledMessageView';
+import { resolveVeilDurationMs } from '@/lib/veilPolicy';
 import { playSound } from '@/lib/sound/map';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,6 +58,10 @@ export interface IMessage {
   fileSize?: number;
   fileData?: Uint8Array; // 解密后的文件二进制
   fileType?: string;
+  /** 模糊消息：需主动揭示，查看时长按字数分档 */
+  veil?: boolean;
+  /** 阅后自焚：揭示后超时或窗口失焦即从列表移除（依赖 veil） */
+  ephemeral?: boolean;
 }
 
 interface MessageListSectionProps {
@@ -63,12 +69,15 @@ interface MessageListSectionProps {
   onFileDownload?: (msg: IMessage) => void;
   /** 重试发送失败的文字消息（FUNC-09） */
   onRetryMessage?: (msg: IMessage) => void;
+  /** 移除一条消息（阅后自焚超时或窗口失焦时调用），由上层复用焚毁的移除链路 */
+  onConsume?: (id: string) => void;
 }
 
 const MessageListSection = memo(function MessageListSection({
   messages,
   onFileDownload,
   onRetryMessage,
+  onConsume,
 }: MessageListSectionProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -81,7 +90,22 @@ const MessageListSection = memo(function MessageListSection({
    * 焚毁倒计时的本地时钟。
    * 只在确实存在待倒计时的消息时才启动，避免整页每秒重渲染。
    */
-  const hasCountdown = messages.some((m) => m.burnAt != null && !m.burned);
+  /**
+   * 揭示状态（单一事实来源）：messageId → 本次揭示的开始时刻与总时长。
+   *
+   * 为什么由列表统一持有，而不让每条气泡各自计时：
+   * 1. **可推理**：超时、失焦、时钟三件事集中在一处，不必在多个组件间追状态；
+   * 2. **不放大资源**：避免 N 条消息各起一个 `setInterval` 与一个 window 监听；
+   * 3. **气泡保持纯展示**：`VeiledMessageView` 只接收 revealed/remainingMs 等入参。
+   *
+   * 揭示状态**只存在于内存**：刷新页面后一切重新变为模糊态，这是刻意的默认。
+   */
+  const [reveal, setReveal] = useState<Map<string, { startedAt: number; durationMs: number }>>(
+    () => new Map(),
+  );
+
+  /** 需要在本地时钟上走秒：焚毁倒计时存在，或任一揭示倒计时存在 */
+  const hasCountdown = messages.some((m) => m.burnAt != null && !m.burned) || reveal.size > 0;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!hasCountdown) return;
@@ -89,6 +113,73 @@ const MessageListSection = memo(function MessageListSection({
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [hasCountdown]);
+
+  /** 最新值引用：让「窗口失焦」监听器只注册一次，同时始终看到最新状态 */
+  const messagesRef = useRef(messages);
+  const onConsumeRef = useRef(onConsume);
+  const revealRef = useRef(reveal);
+  useEffect(() => {
+    messagesRef.current = messages;
+    onConsumeRef.current = onConsume;
+    revealRef.current = reveal;
+  });
+
+  /** 揭示一条消息：按时长规则（10/20/30 秒）启动本次查看窗口 */
+  const handleReveal = useCallback((msg: IMessage) => {
+    playSound('ui:click');
+    const durationMs = resolveVeilDurationMs(msg.content);
+    setReveal((prev) => new Map(prev).set(msg.id, { startedAt: Date.now(), durationMs }));
+  }, []);
+
+  /**
+   * 超时处理：
+   * - **自焚类** → 交给上层移除（复用焚毁的「已销毁 → 淡出 → 移除」链路）；
+   * - **模糊类** → 仅收起遮罩，用户可再次点击查看（每次都重新计时）。
+   */
+  useEffect(() => {
+    if (reveal.size === 0) return;
+    const expired: string[] = [];
+    reveal.forEach((state, id) => {
+      if (now - state.startedAt >= state.durationMs) expired.push(id);
+    });
+    if (expired.length === 0) return;
+
+    setReveal((prev) => {
+      const next = new Map(prev);
+      expired.forEach((id) => next.delete(id));
+      return next;
+    });
+    expired.forEach((id) => {
+      if (messages.find((m) => m.id === id)?.ephemeral === true) onConsume?.(id);
+    });
+  }, [now, reveal, messages, onConsume]);
+
+  /**
+   * 窗口失焦 / 切到后台：已揭示的内容立即失效 —— 自焚类直接移除，模糊类重新模糊。
+   * 未揭示的消息本就只显示模糊影像，无需处理。
+   */
+  useEffect(() => {
+    function conceal() {
+      const current = revealRef.current;
+      if (current.size === 0) return;
+      const ids = Array.from(current.keys());
+      setReveal(new Map());
+      ids.forEach((id) => {
+        if (messagesRef.current.find((m) => m.id === id)?.ephemeral === true) {
+          onConsumeRef.current?.(id);
+        }
+      });
+    }
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') conceal();
+    }
+    window.addEventListener('blur', conceal);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.removeEventListener('blur', conceal);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, []);
 
   const scrollToBottom = useCallback((smooth = true) => {
     // 修复 AUDIT.md FUNC-10：此前两个分支都写成 'auto'，平滑滚动实际从未生效
@@ -253,8 +344,26 @@ const MessageListSection = memo(function MessageListSection({
                         : 'bg-muted text-foreground rounded-bl-md'
                     } ${bubbleStateClass}`}
                   >
-                    {/* 表情按图片渲染（开关关闭时为零外部请求的纯文本），消息内容本身不变 */}
-                    <EmojiText text={msg.content} />
+                    {/* 模糊消息：初始只显示模糊影像，点击（或键盘）揭示后才渲染真实内容 */}
+                    {msg.veil === true ? (
+                      <VeiledMessageView
+                        text={msg.content}
+                        revealed={reveal.has(msg.id)}
+                        durationMs={reveal.get(msg.id)?.durationMs ?? 0}
+                        remainingMs={Math.max(
+                          0,
+                          (reveal.get(msg.id)?.durationMs ?? 0) - (now - (reveal.get(msg.id)?.startedAt ?? now)),
+                        )}
+                        ephemeral={msg.ephemeral === true}
+                        onReveal={() => handleReveal(msg)}
+                      >
+                        {/* 表情按图片渲染（开关关闭时为零外部请求的纯文本），消息内容本身不变 */}
+                        <EmojiText text={msg.content} />
+                      </VeiledMessageView>
+                    ) : (
+                      /* 表情按图片渲染（开关关闭时为零外部请求的纯文本），消息内容本身不变 */
+                      <EmojiText text={msg.content} />
+                    )}
                   </div>
                 )}
                 {burned && (

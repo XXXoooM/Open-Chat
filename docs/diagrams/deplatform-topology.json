@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Open Chat 去平台化后的构建与部署拓扑",
+    "output": "deplatform-topology.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "deploy-path",
+        "label": "前端自动构建",
+        "focus": ["dev", "repo", "pagesBuild", "static", "users"],
+        "note": "推送 main 后 Cloudflare Pages 自动构建并发布静态产物，用户浏览器直接取用。"
+      },
+      {
+        "id": "runtime-path",
+        "label": "运行时通路",
+        "focus": ["users", "static", "broker", "worker", "do"],
+        "note": "端到端加密的密文经两条通路之一传输：外部 Broker，或 Cloudflare 中继（Worker + Durable Object）。"
+      },
+      {
+        "id": "backend-manual",
+        "label": "后端手动部署",
+        "focus": ["dev", "repo", "manual", "worker", "do", "removed"],
+        "note": "中继变更少，采用手动部署：GitHub 中不存放 Cloudflare Token，避免公开仓库授予长期凭据。"
+      }
+    ]
+  },
+  "components": [
+    { "id": "dev", "type": "external", "label": "开发者", "sublabel": "本地 npm run dev", "pos": [40, 300], "size": [120, 60] },
+    { "id": "repo", "type": "cloud", "label": "GitHub 仓库", "sublabel": "main 分支", "pos": [250, 300], "size": [130, 60], "tag": "公开 · 无凭据" },
+    { "id": "pagesBuild", "type": "cloud", "label": "Cloudflare Pages", "sublabel": "Git 集成构建", "pos": [460, 110], "size": [130, 60], "tag": "npm run build" },
+    { "id": "static", "type": "cloud", "label": "静态产物", "sublabel": "dist/pages", "pos": [670, 110], "size": [130, 60], "tag": "_headers · _redirects" },
+    { "id": "users", "type": "external", "label": "浏览器用户", "sublabel": "端到端加密", "pos": [880, 110], "size": [130, 60] },
+    { "id": "broker", "type": "messagebus", "label": "EMQX Cloud", "sublabel": "外部 MQTT Broker", "pos": [880, 300], "size": [130, 60], "tag": "wss :8084" },
+    { "id": "manual", "type": "backend", "label": "手动部署", "sublabel": "npm run relay:deploy", "pos": [460, 490], "size": [130, 60] },
+    { "id": "worker", "type": "backend", "label": "Worker", "sublabel": "open-chat-relay", "pos": [670, 490], "size": [130, 60] },
+    { "id": "do", "type": "database", "label": "Durable Object", "sublabel": "RoomDO", "pos": [880, 490], "size": [130, 60], "tag": "仅存密文与元数据" },
+    { "id": "removed", "type": "security", "label": "平台依赖", "sublabel": "已整体移除", "pos": [40, 110], "size": [130, 64], "tag": "水印 · 埋点 · 占位符" }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Cloudflare 账号", "wraps": ["pagesBuild", "static", "worker", "do"] }
+  ],
+  "connections": [
+    { "id": "push", "from": "dev", "to": "repo", "label": "git push", "variant": "emphasis" },
+    { "id": "trigger", "from": "repo", "to": "pagesBuild", "label": "推送即构建", "labelDy": 54 },
+    { "id": "build", "from": "pagesBuild", "to": "static", "label": "vite build", "labelDy": 54 },
+    { "id": "serve", "from": "static", "to": "users", "label": "静态托管", "variant": "dashed", "fromSide": "right", "toSide": "left", "labelDy": 54 },
+    { "id": "mqtt", "from": "users", "to": "broker", "label": "wss 发布/订阅", "fromSide": "bottom", "toSide": "top", "labelAt": [878, 242] },
+    { "id": "relay", "from": "users", "to": "worker", "label": "wss 中继通路", "variant": "emphasis", "fromSide": "bottom", "toSide": "right", "labelAt": [700, 392] },
+    { "id": "do-bind", "from": "worker", "to": "do", "label": "ROOM 绑定", "labelDy": 54 },
+    { "id": "manual-deploy", "from": "repo", "to": "manual", "label": "relay/** 变更时", "variant": "dashed", "fromSide": "bottom", "toSide": "left", "labelDy": 34 },
+    { "id": "wrangler", "from": "manual", "to": "worker", "label": "wrangler deploy", "labelDy": 54 },
+    { "id": "cut", "from": "removed", "to": "repo", "label": "依赖已切断", "variant": "security", "fromSide": "bottom", "toSide": "top", "labelDy": 34 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "前端：推送即发布", "items": ["Cloudflare Pages 连接 GitHub，推送 main 自动构建", "构建命令 npm run build，产物目录 dist/pages", "SPA 回退与安全响应头随产物一起分发"] },
+    { "dot": "emerald", "title": "后端：手动、低频", "items": ["中继用 wrangler deploy 手动发布，GitHub 不存放 Cloudflare Token", "改动 shared/relay/protocol.ts 时必须先部署中继、再推前端", "中继对密文不可见，只做不透明转发"] },
+    { "dot": "rose", "title": "去平台化", "items": ["平台水印、埋点上报、占位符外壳随依赖整体移除", "产物中已无任何平台标识，且未使用任何 DOM 遮蔽手段", "Authored tokens/样式改为项目自持，视觉保持一致"] }
+  ]
+}

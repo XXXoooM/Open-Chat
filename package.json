@@ -15,7 +15,8 @@
     "prepare": "node scripts/setup-git-hooks.mjs",
     "relay:dev": "wrangler dev",
     "relay:check": "wrangler deploy --dry-run --outdir .wrangler-dist",
-    "relay:deploy": "wrangler deploy"
+    "relay:deploy": "wrangler deploy",
+    "mqtt:check": "node scripts/mqtt-check.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
